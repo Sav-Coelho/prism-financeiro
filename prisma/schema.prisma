@@ -9,14 +9,29 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+model Unit {
+  id           Int           @id @default(autoincrement())
+  name         String        @unique
+  bankAccounts BankAccount[]
+  transactions Transaction[]
+}
+
+model BankAccount {
+  id             Int    @id @default(autoincrement())
+  name           String
+  unitId         Int
+  unit           Unit   @relation(fields: [unitId], references: [id])
+  initialBalance Float  @default(0)
+}
+
 model Account {
-  id          Int           @id @default(autoincrement())
-  code        String        @unique   // ex: "3.1.1"
-  name        String
-  type        String        // RECEITA | CUSTO | DESPESA | DEDUCAO | IMPOSTO
-  dreGroup    String        // ex: "Receita Bruta", "Custo das Mercadorias", etc.
-  active      Boolean       @default(true)
-  createdAt   DateTime      @default(now())
+  id           Int           @id @default(autoincrement())
+  code         String        @unique
+  name         String
+  type         String
+  dreGroup     String
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
   transactions Transaction[]
 }
 
@@ -24,12 +39,14 @@ model Transaction {
   id          Int       @id @default(autoincrement())
   date        DateTime
   description String
-  amount      Float     // positivo = entrada, negativo = saída
+  amount      Float
   memo        String?
-  fitid       String?   @unique  // ID do OFX para evitar duplicatas
+  fitid       String?   @unique
   accountId   Int?
   account     Account?  @relation(fields: [accountId], references: [id])
-  month       Int       // 1-12
+  unitId      Int?
+  unit        Unit?     @relation(fields: [unitId], references: [id])
+  month       Int
   year        Int
   createdAt   DateTime  @default(now())
 }

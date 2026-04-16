@@ -7,6 +7,7 @@ interface IncomingTx {
   amount: number
   memo: string
   accountId?: string | number | null
+  unitId?: string | number | null
 }
 
 export async function POST(req: NextRequest) {
@@ -32,7 +33,8 @@ export async function POST(req: NextRequest) {
           amount: tx.amount,
           month: d.getMonth() + 1,
           year: d.getFullYear(),
-          accountId: tx.accountId ? parseInt(String(tx.accountId)) : null
+          accountId: tx.accountId ? parseInt(String(tx.accountId)) : null,
+          unitId: tx.unitId ? parseInt(String(tx.unitId)) : null,
         }
       })
       imported++

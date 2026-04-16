@@ -6,8 +6,7 @@ import { MONTH_NAMES } from '@/lib/dre'
 const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 
-const fmtDate = (d: string) =>
-  new Date(d).toLocaleDateString('pt-BR')
+const fmtDate = (d: string) => new Date(d).toLocaleDateString('pt-BR')
 
 const now = new Date()
 
@@ -22,6 +21,8 @@ interface PreviewTx {
 export default function Lancamentos() {
   const [transactions, setTransactions] = useState<any[]>([])
   const [accounts, setAccounts] = useState<any[]>([])
+  const [units, setUnits] = useState<any[]>([])
+  const [unitId, setUnitId] = useState<string>('')
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
   const [loading, setLoading] = useState(true)
@@ -30,28 +31,31 @@ export default function Lancamentos() {
   const [filter, setFilter] = useState<'all' | 'sem-conta' | 'classificado'>('all')
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // OFX preview state
   const [parsing, setParsing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [previewTxs, setPreviewTxs] = useState<PreviewTx[] | null>(null)
   const [selectedFitids, setSelectedFitids] = useState<Set<string>>(new Set())
   const [previewAccountMap, setPreviewAccountMap] = useState<Record<string, string>>({})
+  const [previewUnitId, setPreviewUnitId] = useState<string>('')
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 4000) }
 
   const load = () => {
     setLoading(true)
+    const unitParam = unitId ? `&unitId=${unitId}` : ''
     Promise.all([
-      fetch(`/api/transactions?month=${month}&year=${year}`).then(r => r.json()),
-      fetch('/api/accounts').then(r => r.json())
-    ]).then(([txs, accs]) => {
+      fetch(`/api/transactions?month=${month}&year=${year}${unitParam}`).then(r => r.json()),
+      fetch('/api/accounts').then(r => r.json()),
+      fetch('/api/units').then(r => r.json()),
+    ]).then(([txs, accs, uns]) => {
       setTransactions(txs)
       setAccounts(accs)
+      setUnits(uns)
       setLoading(false)
     })
   }
 
-  useEffect(() => { load() }, [month, year])
+  useEffect(() => { load() }, [month, year, unitId])
 
   const parseOFX = async (file: File) => {
     setParsing(true)
@@ -61,13 +65,11 @@ export default function Lancamentos() {
     const data = await res.json()
     if (res.ok) {
       setPreviewTxs(data.transactions)
-      const selectable = new Set<string>(
-        data.transactions
-          .filter((t: PreviewTx) => !t.alreadyImported)
-          .map((t: PreviewTx) => t.fitid)
-      )
-      setSelectedFitids(selectable)
+      setSelectedFitids(new Set(
+        data.transactions.filter((t: PreviewTx) => !t.alreadyImported).map((t: PreviewTx) => t.fitid)
+      ))
       setPreviewAccountMap({})
+      setPreviewUnitId(unitId)
     } else {
       showToast(`Erro: ${data.error}`)
     }
@@ -81,8 +83,7 @@ export default function Lancamentos() {
   }
 
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setDrag(false)
+    e.preventDefault(); setDrag(false)
     const f = e.dataTransfer.files?.[0]
     if (f) parseOFX(f)
   }
@@ -90,25 +91,22 @@ export default function Lancamentos() {
   const toggleSelect = (fitid: string) => {
     setSelectedFitids(prev => {
       const next = new Set(prev)
-      if (next.has(fitid)) next.delete(fitid)
-      else next.add(fitid)
+      if (next.has(fitid)) next.delete(fitid); else next.add(fitid)
       return next
     })
   }
 
   const selectAll = () => {
     if (!previewTxs) return
-    const selectable = previewTxs.filter(t => !t.alreadyImported).map(t => t.fitid)
-    setSelectedFitids(new Set(selectable))
+    setSelectedFitids(new Set(previewTxs.filter(t => !t.alreadyImported).map(t => t.fitid)))
   }
-
-  const deselectAll = () => setSelectedFitids(new Set())
 
   const saveSelected = async () => {
     if (!previewTxs) return
+    if (!previewUnitId) { showToast('Selecione a unidade antes de salvar'); return }
     const toSave = previewTxs
       .filter(t => selectedFitids.has(t.fitid))
-      .map(t => ({ ...t, accountId: previewAccountMap[t.fitid] || null }))
+      .map(t => ({ ...t, accountId: previewAccountMap[t.fitid] || null, unitId: previewUnitId }))
 
     if (toSave.length === 0) { showToast('Selecione ao menos uma transação'); return }
 
@@ -121,9 +119,7 @@ export default function Lancamentos() {
     const data = await res.json()
     if (res.ok) {
       showToast(`✓ ${data.imported} importadas${data.skipped ? `, ${data.skipped} ignoradas` : ''}`)
-      setPreviewTxs(null)
-      setSelectedFitids(new Set())
-      setPreviewAccountMap({})
+      setPreviewTxs(null); setSelectedFitids(new Set()); setPreviewAccountMap({})
       load()
     } else {
       showToast(`Erro: ${data.error}`)
@@ -168,6 +164,10 @@ export default function Lancamentos() {
           <p className="page-subtitle">Importe extratos OFX e classifique cada transação</p>
         </div>
         <div className="flex gap-2">
+          <select className="form-select" style={{ width: 150 }} value={unitId} onChange={e => setUnitId(e.target.value)}>
+            <option value="">Todas as unidades</option>
+            {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
           <select className="form-select" style={{ width: 120 }} value={month} onChange={e => setMonth(+e.target.value)}>
             {MONTH_NAMES.slice(1).map((m, i) => (
               <option key={i + 1} value={i + 1}>{m}</option>
@@ -179,7 +179,6 @@ export default function Lancamentos() {
         </div>
       </div>
 
-      {/* Upload zone — hidden when preview is active */}
       {!previewTxs && (
         <div
           className={`upload-zone mb-6 ${drag ? 'drag' : ''}`}
@@ -190,42 +189,44 @@ export default function Lancamentos() {
         >
           <input ref={fileRef} type="file" accept=".ofx,.OFX" style={{ display: 'none' }} onChange={handleFile} />
           <div className="upload-icon">{parsing ? '⏳' : '📂'}</div>
-          <div className="upload-title">
-            {parsing ? 'Lendo extrato...' : 'Importar Extrato OFX'}
-          </div>
-          <div className="upload-sub">
-            Clique ou arraste o arquivo .OFX aqui — você verá uma prévia antes de salvar
-          </div>
+          <div className="upload-title">{parsing ? 'Lendo extrato...' : 'Importar Extrato OFX'}</div>
+          <div className="upload-sub">Clique ou arraste o arquivo .OFX — você verá uma prévia antes de salvar</div>
         </div>
       )}
 
-      {/* OFX Preview Table */}
       {previewTxs && (
         <div className="card mb-6" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--brave-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <div>
               <span style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13 }}>
-                Prévia do OFX — {previewTxs.length} transações encontradas
+                Prévia do OFX — {previewTxs.length} transações
               </span>
               <div style={{ fontSize: 12, color: 'var(--brave-gray)', marginTop: 2 }}>
                 {selectedFitids.size} selecionadas · {previewTxs.filter(t => t.alreadyImported).length} já importadas
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              {selectedFitids.size === selectableCount ? (
-                <button className="btn btn-secondary btn-sm" onClick={deselectAll}>Desmarcar todas</button>
-              ) : (
-                <button className="btn btn-secondary btn-sm" onClick={selectAll}>Selecionar todas</button>
-              )}
-              <button className="btn btn-primary" onClick={saveSelected} disabled={saving || selectedFitids.size === 0}>
-                {saving ? 'Salvando...' : `Salvar Selecionadas (${selectedFitids.size})`}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <select
+                className="form-select"
+                style={{ fontSize: 12 }}
+                value={previewUnitId}
+                onChange={e => setPreviewUnitId(e.target.value)}
+              >
+                <option value="">— Selecione a unidade —</option>
+                {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+              {selectedFitids.size === selectableCount
+                ? <button className="btn btn-secondary btn-sm" onClick={() => setSelectedFitids(new Set())}>Desmarcar todas</button>
+                : <button className="btn btn-secondary btn-sm" onClick={selectAll}>Selecionar todas</button>
+              }
+              <button className="btn btn-primary" onClick={saveSelected} disabled={saving || selectedFitids.size === 0 || !previewUnitId}>
+                {saving ? 'Salvando...' : `Salvar (${selectedFitids.size})`}
               </button>
-              <button className="btn btn-danger btn-sm" onClick={() => { setPreviewTxs(null); setSelectedFitids(new Set()); setPreviewAccountMap({}) }}>
+              <button className="btn btn-danger btn-sm" onClick={() => { setPreviewTxs(null); setSelectedFitids(new Set()) }}>
                 Cancelar
               </button>
             </div>
           </div>
-
           <div className="table-wrap">
             <table>
               <thead>
@@ -242,31 +243,21 @@ export default function Lancamentos() {
                 {previewTxs.map(tx => (
                   <tr key={tx.fitid} style={{ opacity: tx.alreadyImported ? 0.5 : 1 }}>
                     <td>
-                      <input
-                        type="checkbox"
-                        checked={selectedFitids.has(tx.fitid)}
-                        disabled={tx.alreadyImported}
-                        onChange={() => toggleSelect(tx.fitid)}
-                        style={{ cursor: tx.alreadyImported ? 'not-allowed' : 'pointer' }}
-                      />
+                      <input type="checkbox" checked={selectedFitids.has(tx.fitid)} disabled={tx.alreadyImported}
+                        onChange={() => toggleSelect(tx.fitid)} style={{ cursor: tx.alreadyImported ? 'not-allowed' : 'pointer' }} />
                     </td>
                     <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtDate(tx.date)}</td>
                     <td style={{ maxWidth: 260, fontSize: 13 }}>{tx.memo}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', color: tx.amount >= 0 ? '#1a7a4a' : '#c0392b' }}>
                       {fmt(tx.amount)}
                     </td>
-                    <td style={{ minWidth: 220 }}>
+                    <td style={{ minWidth: 200 }}>
                       {!tx.alreadyImported ? (
-                        <select
-                          className="form-select"
-                          style={{ fontSize: 12, padding: '5px 8px' }}
+                        <select className="form-select" style={{ fontSize: 12, padding: '5px 8px' }}
                           value={previewAccountMap[tx.fitid] || ''}
-                          onChange={e => setPreviewAccountMap(prev => ({ ...prev, [tx.fitid]: e.target.value }))}
-                        >
+                          onChange={e => setPreviewAccountMap(prev => ({ ...prev, [tx.fitid]: e.target.value }))}>
                           <option value="">— Sem classificação —</option>
-                          {accounts.map(a => (
-                            <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                          ))}
+                          {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                         </select>
                       ) : <span style={{ fontSize: 12, color: 'var(--brave-gray)' }}>—</span>}
                     </td>
@@ -283,30 +274,25 @@ export default function Lancamentos() {
         </div>
       )}
 
-      {/* Stats */}
       <div className="metrics-grid mb-6" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-        <div className="metric-card" style={{ cursor: 'pointer', border: filter === 'all' ? '2px solid var(--brave-yellow)' : '' }}
-          onClick={() => setFilter('all')}>
+        <div className="metric-card" style={{ cursor: 'pointer', border: filter === 'all' ? '2px solid var(--brave-yellow)' : '' }} onClick={() => setFilter('all')}>
           <div className="metric-label">Total no período</div>
           <div className="metric-value">{transactions.length}</div>
         </div>
-        <div className="metric-card" style={{ cursor: 'pointer', border: filter === 'sem-conta' ? '2px solid var(--brave-yellow)' : '' }}
-          onClick={() => setFilter('sem-conta')}>
+        <div className="metric-card" style={{ cursor: 'pointer', border: filter === 'sem-conta' ? '2px solid var(--brave-yellow)' : '' }} onClick={() => setFilter('sem-conta')}>
           <div className="metric-label">Sem classificação</div>
           <div className="metric-value" style={{ color: semConta > 0 ? '#c0392b' : '#1a7a4a' }}>{semConta}</div>
         </div>
-        <div className="metric-card" style={{ cursor: 'pointer', border: filter === 'classificado' ? '2px solid var(--brave-yellow)' : '' }}
-          onClick={() => setFilter('classificado')}>
+        <div className="metric-card" style={{ cursor: 'pointer', border: filter === 'classificado' ? '2px solid var(--brave-yellow)' : '' }} onClick={() => setFilter('classificado')}>
           <div className="metric-label">Classificados</div>
           <div className="metric-value" style={{ color: '#1a7a4a' }}>{classificado}</div>
         </div>
       </div>
 
-      {/* Saved transactions table */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--brave-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13 }}>
-            {MONTH_NAMES[month]}/{year} — {filtered.length} lançamentos
+            {unitId ? units.find(u => u.id === parseInt(unitId))?.name : 'Consolidado'} — {MONTH_NAMES[month]}/{year} — {filtered.length} lançamentos
           </span>
           {semConta > 0 && (
             <span style={{ fontSize: 12, color: '#c0392b', fontWeight: 500 }}>
@@ -314,7 +300,6 @@ export default function Lancamentos() {
             </span>
           )}
         </div>
-
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--brave-gray)' }}>Carregando...</div>
         ) : filtered.length === 0 ? (
@@ -330,6 +315,7 @@ export default function Lancamentos() {
                 <tr>
                   <th>Data</th>
                   <th>Descrição</th>
+                  <th>Unidade</th>
                   <th style={{ textAlign: 'right' }}>Valor</th>
                   <th>Conta do Plano</th>
                   <th></th>
@@ -339,26 +325,23 @@ export default function Lancamentos() {
                 {filtered.map(tx => (
                   <tr key={tx.id}>
                     <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtDate(tx.date)}</td>
-                    <td style={{ maxWidth: 260 }}>
+                    <td style={{ maxWidth: 240 }}>
                       <div style={{ fontSize: 13 }}>{tx.description}</div>
                       {tx.memo && tx.memo !== tx.description && (
                         <div style={{ fontSize: 11, color: 'var(--brave-gray)' }}>{tx.memo}</div>
                       )}
                     </td>
+                    <td style={{ fontSize: 11, color: 'var(--brave-gray)', whiteSpace: 'nowrap' }}>
+                      {tx.unit?.name || '—'}
+                    </td>
                     <td style={{ textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', color: tx.amount >= 0 ? '#1a7a4a' : '#c0392b' }}>
                       {fmt(tx.amount)}
                     </td>
-                    <td style={{ minWidth: 220 }}>
-                      <select
-                        className="form-select"
-                        style={{ fontSize: 12, padding: '5px 8px' }}
-                        value={tx.accountId || ''}
-                        onChange={e => classify(tx.id, e.target.value)}
-                      >
+                    <td style={{ minWidth: 200 }}>
+                      <select className="form-select" style={{ fontSize: 12, padding: '5px 8px' }}
+                        value={tx.accountId || ''} onChange={e => classify(tx.id, e.target.value)}>
                         <option value="">— Sem classificação —</option>
-                        {accounts.map(a => (
-                          <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                        ))}
+                        {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                       </select>
                     </td>
                     <td>

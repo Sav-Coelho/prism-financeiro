@@ -3,6 +3,7 @@ import { usePathname, useRouter } from 'next/navigation'
 
 const NAV = [
   { href: '/dashboard', icon: '◈', label: 'Dashboard' },
+  { href: '/unidades', icon: '🏢', label: 'Unidades' },
   { href: '/plano-de-contas', icon: '≡', label: 'Plano de Contas' },
   { href: '/lancamentos', icon: '↑↓', label: 'Lançamentos / OFX' },
   { href: '/dre', icon: '▦', label: 'DRE' },
