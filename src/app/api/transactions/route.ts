@@ -16,7 +16,6 @@ export async function GET(req: NextRequest) {
     where,
     include: { account: true, unit: true },
     orderBy: { date: 'desc' },
-    take: 500
   })
   return NextResponse.json(transactions)
 }
