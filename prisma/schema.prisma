@@ -1,0 +1,35 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Account {
+  id          Int           @id @default(autoincrement())
+  code        String        @unique   // ex: "3.1.1"
+  name        String
+  type        String        // RECEITA | CUSTO | DESPESA | DEDUCAO | IMPOSTO
+  dreGroup    String        // ex: "Receita Bruta", "Custo das Mercadorias", etc.
+  active      Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  transactions Transaction[]
+}
+
+model Transaction {
+  id          Int       @id @default(autoincrement())
+  date        DateTime
+  description String
+  amount      Float     // positivo = entrada, negativo = saída
+  memo        String?
+  fitid       String?   @unique  // ID do OFX para evitar duplicatas
+  accountId   Int?
+  account     Account?  @relation(fields: [accountId], references: [id])
+  month       Int       // 1-12
+  year        Int
+  createdAt   DateTime  @default(now())
+}
