@@ -46,21 +46,15 @@ export default function Saldo() {
 
   const bankAccounts = units.find(u => String(u.id) === selectedUnitId)?.bankAccounts ?? []
 
-  const chartData = (data?.dailyBalances ?? []).map((d: any) => ({
-    date: d.date,
-    label: fmtDateShort(d.date),
-    Saldo: d.balance,
+  const chartData = (data?.snapshots ?? []).map((s: any) => ({
+    date: s.date.split('T')[0],
+    label: fmtDateShort(s.date.split('T')[0]),
+    Saldo: s.balance,
   }))
-
-  // For many data points, skip some labels
-  const tickInterval = chartData.length > 90 ? Math.floor(chartData.length / 20) :
-                       chartData.length > 30 ? Math.floor(chartData.length / 10) : 0
 
   const currentBalance: number = data?.currentBalance ?? 0
   const snapshotCount: number = data?.snapshots?.length ?? 0
-  const txCount: number = data?.transactionCount ?? 0
 
-  // Find min/max balance
   const balances: number[] = chartData.map((d: any) => d.Saldo)
   const minBalance: number = balances.length ? Math.min(...balances) : 0
   const maxBalance: number = balances.length ? Math.max(...balances) : 0
@@ -114,7 +108,7 @@ export default function Saldo() {
 
       {selectedBankId && !loading && data && (
         <>
-          {txCount === 0 && snapshotCount === 0 ? (
+          {snapshotCount === 0 ? (
             <div className="card" style={{ textAlign: 'center', padding: 60 }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
               <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 15 }}>
@@ -126,7 +120,7 @@ export default function Saldo() {
             </div>
           ) : (
             <>
-              <div className="metrics-grid mb-6" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+              <div className="metrics-grid mb-6" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
                 <div className="metric-card">
                   <div className="metric-accent"></div>
                   <div className="metric-label">Saldo Atual</div>
@@ -144,11 +138,6 @@ export default function Saldo() {
                   <div className="metric-label">Saldo Mínimo</div>
                   <div className={`metric-value ${minBalance >= 0 ? '' : 'negative'}`}>{fmt(minBalance)}</div>
                 </div>
-                <div className="metric-card">
-                  <div className="metric-accent"></div>
-                  <div className="metric-label">Transações Vinculadas</div>
-                  <div className="metric-value">{txCount}</div>
-                </div>
               </div>
 
               {chartData.length > 0 && (
@@ -162,7 +151,7 @@ export default function Saldo() {
                       <XAxis
                         dataKey="label"
                         tick={{ fontSize: 11 }}
-                        interval={tickInterval || 'preserveStartEnd'}
+                        interval="preserveStartEnd"
                       />
                       <YAxis
                         tick={{ fontSize: 11 }}
