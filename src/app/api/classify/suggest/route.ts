@@ -36,10 +36,10 @@ export async function POST(req: NextRequest) {
 
   // Build reference list: unique memo → best account (most frequent)
   const references: { tokens: string[]; account: { id: number; name: string; code: string } }[] = []
-  for (const [memo, accountMap] of memoAccountFreq) {
-    const best = [...accountMap.values()].sort((a, b) => b.count - a.count)[0]
+  Array.from(memoAccountFreq.entries()).forEach(([memo, accountMap]) => {
+    const best = Array.from(accountMap.values()).sort((a, b) => b.count - a.count)[0]
     references.push({ tokens: tokenize(memo), account: { id: best.account.id, name: best.account.name, code: best.account.code } })
-  }
+  })
 
   if (references.length === 0) return NextResponse.json([])
 
