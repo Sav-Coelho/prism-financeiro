@@ -6,6 +6,7 @@ const NAV = [
   { href: '/unidades', icon: '🏢', label: 'Unidades' },
   { href: '/plano-de-contas', icon: '≡', label: 'Plano de Contas' },
   { href: '/lancamentos', icon: '↑↓', label: 'Lançamentos / OFX' },
+  { href: '/saldo', icon: '◉', label: 'Saldo Bancário' },
   { href: '/dre', icon: '▦', label: 'DRE' },
 ]
 

@@ -17,11 +17,15 @@ model Unit {
 }
 
 model BankAccount {
-  id             Int    @id @default(autoincrement())
-  name           String
-  unitId         Int
-  unit           Unit   @relation(fields: [unitId], references: [id])
-  initialBalance Float  @default(0)
+  id               Int               @id @default(autoincrement())
+  name             String
+  unitId           Int
+  unit             Unit              @relation(fields: [unitId], references: [id])
+  initialBalance   Float             @default(0)
+  ofxBankId        String?
+  ofxAcctId        String?
+  transactions     Transaction[]
+  balanceSnapshots BalanceSnapshot[]
 }
 
 model Account {
@@ -36,17 +40,30 @@ model Account {
 }
 
 model Transaction {
-  id          Int       @id @default(autoincrement())
-  date        DateTime
-  description String
-  amount      Float
-  memo        String?
-  fitid       String?   @unique
-  accountId   Int?
-  account     Account?  @relation(fields: [accountId], references: [id])
-  unitId      Int?
-  unit        Unit?     @relation(fields: [unitId], references: [id])
-  month       Int
-  year        Int
-  createdAt   DateTime  @default(now())
+  id            Int          @id @default(autoincrement())
+  date          DateTime
+  description   String
+  amount        Float
+  memo          String?
+  fitid         String?      @unique
+  accountId     Int?
+  account       Account?     @relation(fields: [accountId], references: [id])
+  unitId        Int?
+  unit          Unit?        @relation(fields: [unitId], references: [id])
+  bankAccountId Int?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
+  month         Int
+  year          Int
+  createdAt     DateTime     @default(now())
+}
+
+model BalanceSnapshot {
+  id            Int         @id @default(autoincrement())
+  bankAccountId Int
+  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id])
+  date          DateTime
+  balance       Float
+  createdAt     DateTime    @default(now())
+
+  @@unique([bankAccountId, date])
 }

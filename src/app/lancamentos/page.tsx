@@ -16,6 +16,25 @@ interface PreviewTx {
   amount: number
   memo: string
   alreadyImported: boolean
+  isBalance: boolean
+}
+
+interface BankInfo {
+  bankId: string | null
+  acctId: string | null
+  acctType: string | null
+}
+
+interface MatchedBankAccount {
+  id: number
+  name: string
+  unitId: number
+  unitName: string
+}
+
+interface LedgerBalance {
+  amount: number
+  date: string | null
 }
 
 export default function Lancamentos() {
@@ -37,6 +56,10 @@ export default function Lancamentos() {
   const [selectedFitids, setSelectedFitids] = useState<Set<string>>(new Set())
   const [previewAccountMap, setPreviewAccountMap] = useState<Record<string, string>>({})
   const [previewUnitId, setPreviewUnitId] = useState<string>('')
+  const [previewBankAccountId, setPreviewBankAccountId] = useState<string>('')
+  const [detectedBankInfo, setDetectedBankInfo] = useState<BankInfo | null>(null)
+  const [matchedBankAccount, setMatchedBankAccount] = useState<MatchedBankAccount | null>(null)
+  const [ledgerBalance, setLedgerBalance] = useState<LedgerBalance | null>(null)
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 4000) }
 
@@ -66,10 +89,22 @@ export default function Lancamentos() {
     if (res.ok) {
       setPreviewTxs(data.transactions)
       setSelectedFitids(new Set(
-        data.transactions.filter((t: PreviewTx) => !t.alreadyImported).map((t: PreviewTx) => t.fitid)
+        data.transactions
+          .filter((t: PreviewTx) => !t.alreadyImported && !t.isBalance)
+          .map((t: PreviewTx) => t.fitid)
       ))
       setPreviewAccountMap({})
-      setPreviewUnitId(unitId)
+      setDetectedBankInfo(data.bankInfo ?? null)
+      setMatchedBankAccount(data.matchedBankAccount ?? null)
+      setLedgerBalance(data.ledgerBalance ?? null)
+
+      if (data.matchedBankAccount) {
+        setPreviewUnitId(String(data.matchedBankAccount.unitId))
+        setPreviewBankAccountId(String(data.matchedBankAccount.id))
+      } else {
+        setPreviewUnitId(unitId)
+        setPreviewBankAccountId('')
+      }
     } else {
       showToast(`Erro: ${data.error}`)
     }
@@ -98,7 +133,9 @@ export default function Lancamentos() {
 
   const selectAll = () => {
     if (!previewTxs) return
-    setSelectedFitids(new Set(previewTxs.filter(t => !t.alreadyImported).map(t => t.fitid)))
+    setSelectedFitids(new Set(
+      previewTxs.filter(t => !t.alreadyImported && !t.isBalance).map(t => t.fitid)
+    ))
   }
 
   const saveSelected = async () => {
@@ -114,12 +151,19 @@ export default function Lancamentos() {
     const res = await fetch('/api/ofx', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transactions: toSave })
+      body: JSON.stringify({
+        transactions: toSave,
+        bankAccountId: previewBankAccountId || null,
+        ledgerBalance,
+        bankInfo: detectedBankInfo,
+      })
     })
     const data = await res.json()
     if (res.ok) {
-      showToast(`✓ ${data.imported} importadas${data.skipped ? `, ${data.skipped} ignoradas` : ''}`)
+      const saldoMsg = ledgerBalance ? ` · Saldo ${fmt(ledgerBalance.amount)} salvo` : ''
+      showToast(`✓ ${data.imported} importadas${data.skipped ? `, ${data.skipped} ignoradas` : ''}${saldoMsg}`)
       setPreviewTxs(null); setSelectedFitids(new Set()); setPreviewAccountMap({})
+      setMatchedBankAccount(null); setDetectedBankInfo(null); setLedgerBalance(null)
       load()
     } else {
       showToast(`Erro: ${data.error}`)
@@ -154,7 +198,9 @@ export default function Lancamentos() {
 
   const semConta = transactions.filter(t => !t.accountId).length
   const classificado = transactions.filter(t => !!t.accountId).length
-  const selectableCount = previewTxs?.filter(t => !t.alreadyImported).length ?? 0
+  const selectableCount = previewTxs?.filter(t => !t.alreadyImported && !t.isBalance).length ?? 0
+
+  const bankAccountsForUnit = units.find(u => String(u.id) === previewUnitId)?.bankAccounts ?? []
 
   return (
     <Shell>
@@ -199,22 +245,58 @@ export default function Lancamentos() {
           <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--brave-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <div>
               <span style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13 }}>
-                Prévia do OFX — {previewTxs.length} transações
+                Prévia do OFX — {previewTxs.length} linhas
               </span>
               <div style={{ fontSize: 12, color: 'var(--brave-gray)', marginTop: 2 }}>
                 {selectedFitids.size} selecionadas · {previewTxs.filter(t => t.alreadyImported).length} já importadas
+                {previewTxs.filter(t => t.isBalance).length > 0 && (
+                  <span style={{ marginLeft: 6, color: '#b58b00' }}>
+                    · {previewTxs.filter(t => t.isBalance).length} de saldo (excluídas)
+                  </span>
+                )}
+                {ledgerBalance && (
+                  <span style={{ marginLeft: 6, color: '#1a7a4a', fontWeight: 600 }}>
+                    · Saldo LEDGER: {fmt(ledgerBalance.amount)}
+                  </span>
+                )}
               </div>
+              {detectedBankInfo?.bankId && (
+                <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {matchedBankAccount ? (
+                    <span style={{ fontSize: 12, background: '#e8f5e9', color: '#1a7a4a', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
+                      Banco identificado: {matchedBankAccount.name} ({matchedBankAccount.unitName})
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 12, background: '#fff8e1', color: '#b58b00', borderRadius: 4, padding: '2px 8px' }}>
+                      Banco {detectedBankInfo.bankId} · Conta ...{detectedBankInfo.acctId?.slice(-4)} — não mapeado ainda
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <select
                 className="form-select"
                 style={{ fontSize: 12 }}
                 value={previewUnitId}
-                onChange={e => setPreviewUnitId(e.target.value)}
+                onChange={e => { setPreviewUnitId(e.target.value); setPreviewBankAccountId('') }}
               >
                 <option value="">— Selecione a unidade —</option>
                 {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
+              {previewUnitId && (
+                <select
+                  className="form-select"
+                  style={{ fontSize: 12 }}
+                  value={previewBankAccountId}
+                  onChange={e => setPreviewBankAccountId(e.target.value)}
+                >
+                  <option value="">— Conta bancária —</option>
+                  {bankAccountsForUnit.map((b: any) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              )}
               {selectedFitids.size === selectableCount
                 ? <button className="btn btn-secondary btn-sm" onClick={() => setSelectedFitids(new Set())}>Desmarcar todas</button>
                 : <button className="btn btn-secondary btn-sm" onClick={selectAll}>Selecionar todas</button>
@@ -222,7 +304,7 @@ export default function Lancamentos() {
               <button className="btn btn-primary" onClick={saveSelected} disabled={saving || selectedFitids.size === 0 || !previewUnitId}>
                 {saving ? 'Salvando...' : `Salvar (${selectedFitids.size})`}
               </button>
-              <button className="btn btn-danger btn-sm" onClick={() => { setPreviewTxs(null); setSelectedFitids(new Set()) }}>
+              <button className="btn btn-danger btn-sm" onClick={() => { setPreviewTxs(null); setSelectedFitids(new Set()); setMatchedBankAccount(null); setDetectedBankInfo(null); setLedgerBalance(null) }}>
                 Cancelar
               </button>
             </div>
@@ -241,10 +323,14 @@ export default function Lancamentos() {
               </thead>
               <tbody>
                 {previewTxs.map(tx => (
-                  <tr key={tx.fitid} style={{ opacity: tx.alreadyImported ? 0.5 : 1 }}>
+                  <tr key={tx.fitid} style={{ opacity: tx.alreadyImported || tx.isBalance ? 0.5 : 1 }}>
                     <td>
-                      <input type="checkbox" checked={selectedFitids.has(tx.fitid)} disabled={tx.alreadyImported}
-                        onChange={() => toggleSelect(tx.fitid)} style={{ cursor: tx.alreadyImported ? 'not-allowed' : 'pointer' }} />
+                      {tx.isBalance ? (
+                        <span style={{ fontSize: 10 }}>—</span>
+                      ) : (
+                        <input type="checkbox" checked={selectedFitids.has(tx.fitid)} disabled={tx.alreadyImported}
+                          onChange={() => toggleSelect(tx.fitid)} style={{ cursor: tx.alreadyImported ? 'not-allowed' : 'pointer' }} />
+                      )}
                     </td>
                     <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtDate(tx.date)}</td>
                     <td style={{ maxWidth: 260, fontSize: 13 }}>{tx.memo}</td>
@@ -252,7 +338,7 @@ export default function Lancamentos() {
                       {fmt(tx.amount)}
                     </td>
                     <td style={{ minWidth: 200 }}>
-                      {!tx.alreadyImported ? (
+                      {!tx.alreadyImported && !tx.isBalance ? (
                         <select className="form-select" style={{ fontSize: 12, padding: '5px 8px' }}
                           value={previewAccountMap[tx.fitid] || ''}
                           onChange={e => setPreviewAccountMap(prev => ({ ...prev, [tx.fitid]: e.target.value }))}>
@@ -262,9 +348,11 @@ export default function Lancamentos() {
                       ) : <span style={{ fontSize: 12, color: 'var(--brave-gray)' }}>—</span>}
                     </td>
                     <td>
-                      {tx.alreadyImported
-                        ? <span style={{ fontSize: 11, color: 'var(--brave-gray)', background: 'var(--brave-light)', borderRadius: 4, padding: '2px 6px' }}>já importada</span>
-                        : <span style={{ fontSize: 11, color: '#1a7a4a' }}>nova</span>}
+                      {tx.isBalance
+                        ? <span style={{ fontSize: 11, color: '#b58b00', background: '#fff8e1', borderRadius: 4, padding: '2px 6px' }}>saldo</span>
+                        : tx.alreadyImported
+                          ? <span style={{ fontSize: 11, color: 'var(--brave-gray)', background: 'var(--brave-light)', borderRadius: 4, padding: '2px 6px' }}>já importada</span>
+                          : <span style={{ fontSize: 11, color: '#1a7a4a' }}>nova</span>}
                     </td>
                   </tr>
                 ))}
