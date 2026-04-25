@@ -18,8 +18,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     <>
       <header className="topbar">
         <div className="topbar-logo">
-          <span>Brave</span>
-          <span style={{ color: 'var(--brave-gray)', fontWeight: 400, fontSize: 15 }}>Prism</span>
+          <span>Prism</span>
         </div>
         <div className="topbar-right">
           <span className="topbar-badge">v1.0</span>
