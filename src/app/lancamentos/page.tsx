@@ -252,6 +252,10 @@ export default function Lancamentos() {
 
     if (toSave.length === 0) { showToast('Selecione ao menos uma transação'); return }
 
+    const balanceTransactions = previewTxs
+      .filter(t => t.isBalance)
+      .map(t => ({ date: t.date, amount: t.amount }))
+
     setSaving(true)
     const res = await fetch('/api/ofx', {
       method: 'POST',
@@ -261,6 +265,7 @@ export default function Lancamentos() {
         bankAccountId: previewBankAccountId || null,
         ledgerBalance,
         bankInfo: detectedBankInfo,
+        balanceTransactions,
       })
     })
     const data = await res.json()

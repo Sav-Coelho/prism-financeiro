@@ -15,11 +15,12 @@ interface SaveBody {
   bankAccountId?: string | number | null
   ledgerBalance?: { amount: number; date: string | null } | null
   bankInfo?: { bankId: string | null; acctId: string | null; org: string | null } | null
+  balanceTransactions?: { date: string; amount: number }[]
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json() as SaveBody
-  const { transactions, bankAccountId, ledgerBalance, bankInfo } = body
+  const { transactions, bankAccountId, ledgerBalance, bankInfo, balanceTransactions } = body
 
   if (!Array.isArray(transactions) || transactions.length === 0) {
     return NextResponse.json({ error: 'Nenhuma transação selecionada' }, { status: 400 })
@@ -53,7 +54,24 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Save balance snapshot
+  // Save per-day balance snapshots from isBalance transactions in OFX
+  if (bankAccId && Array.isArray(balanceTransactions)) {
+    for (const bt of balanceTransactions) {
+      try {
+        const snapDate = new Date(bt.date)
+        snapDate.setHours(0, 0, 0, 0)
+        await prisma.balanceSnapshot.upsert({
+          where: { bankAccountId_date: { bankAccountId: bankAccId, date: snapDate } },
+          update: { balance: bt.amount },
+          create: { bankAccountId: bankAccId, date: snapDate, balance: bt.amount },
+        })
+      } catch {
+        // non-fatal
+      }
+    }
+  }
+
+  // Save LEDGERBAL snapshot
   if (bankAccId && ledgerBalance?.amount != null && ledgerBalance.date) {
     try {
       const snapDate = new Date(ledgerBalance.date)
