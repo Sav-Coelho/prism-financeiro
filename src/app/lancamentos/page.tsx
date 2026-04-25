@@ -391,6 +391,12 @@ export default function Lancamentos() {
                   💡 Confirmar todas ({suggestedFitids.size})
                 </button>
               )}
+              <button className="btn btn-secondary btn-sm" onClick={() => {
+                if (!previewTxs) return
+                setSelectedFitids(new Set(
+                  previewTxs.filter(t => !t.alreadyImported && !t.isBalance && previewAccountMap[t.fitid]).map(t => t.fitid)
+                ))
+              }}>Só classificadas</button>
               {selectedFitids.size === selectableCount
                 ? <button className="btn btn-secondary btn-sm" onClick={() => setSelectedFitids(new Set())}>Desmarcar todas</button>
                 : <button className="btn btn-secondary btn-sm" onClick={selectAll}>Selecionar todas</button>
