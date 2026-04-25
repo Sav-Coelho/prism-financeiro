@@ -3,6 +3,9 @@ import { useEffect, useState, useRef } from 'react'
 import Shell from '@/components/Shell'
 import AccountCombobox from '@/components/AccountCombobox'
 import { MONTH_NAMES } from '@/lib/dre'
+import { tokenize, jaccardSimilarity } from '@/lib/classifier'
+
+const REALTIME_THRESHOLD = 0.25
 
 const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
@@ -62,6 +65,8 @@ export default function Lancamentos() {
   const [detectedBankInfo, setDetectedBankInfo] = useState<BankInfo | null>(null)
   const [matchedBankAccount, setMatchedBankAccount] = useState<MatchedBankAccount | null>(null)
   const [ledgerBalance, setLedgerBalance] = useState<LedgerBalance | null>(null)
+  const [suggestedFitids, setSuggestedFitids] = useState<Set<string>>(new Set())
+  const [suggesting, setSuggesting] = useState(false)
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 4000) }
 
@@ -89,13 +94,13 @@ export default function Lancamentos() {
     const res = await fetch('/api/ofx/parse', { method: 'POST', body: fd })
     const data = await res.json()
     if (res.ok) {
-      setPreviewTxs(data.transactions)
+      const txList: PreviewTx[] = data.transactions
+      setPreviewTxs(txList)
       setSelectedFitids(new Set(
-        data.transactions
-          .filter((t: PreviewTx) => !t.alreadyImported && !t.isBalance)
-          .map((t: PreviewTx) => t.fitid)
+        txList.filter((t: PreviewTx) => !t.alreadyImported && !t.isBalance).map((t: PreviewTx) => t.fitid)
       ))
       setPreviewAccountMap({})
+      setSuggestedFitids(new Set())
       setDetectedBankInfo(data.bankInfo ?? null)
       setMatchedBankAccount(data.matchedBankAccount ?? null)
       setLedgerBalance(data.ledgerBalance ?? null)
@@ -107,11 +112,61 @@ export default function Lancamentos() {
         setPreviewUnitId(unitId)
         setPreviewBankAccountId('')
       }
+
+      // Busca sugestões históricas (não-bloqueante)
+      const toSuggest = txList.filter(t => !t.alreadyImported && !t.isBalance)
+      if (toSuggest.length > 0) {
+        setSuggesting(true)
+        fetch('/api/classify/suggest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ memos: toSuggest.map(t => ({ fitid: t.fitid, memo: t.memo })) }),
+        })
+          .then(r => r.json())
+          .then((suggestions: { fitid: string; accountId: number }[]) => {
+            if (suggestions.length > 0) {
+              const newMap: Record<string, string> = {}
+              const newSuggested = new Set<string>()
+              suggestions.forEach(s => { newMap[s.fitid] = String(s.accountId); newSuggested.add(s.fitid) })
+              setPreviewAccountMap(prev => ({ ...newMap, ...prev }))
+              setSuggestedFitids(newSuggested)
+            }
+          })
+          .catch(() => {})
+          .finally(() => setSuggesting(false))
+      }
     } else {
       showToast(`Erro: ${data.error}`)
     }
     setParsing(false)
   }
+
+  const handlePreviewAccountChange = (fitid: string, accountId: string) => {
+    setSuggestedFitids(prev => { const n = new Set(prev); n.delete(fitid); return n })
+    setPreviewAccountMap(prev => ({ ...prev, [fitid]: accountId }))
+
+    if (accountId && previewTxs) {
+      const thisTx = previewTxs.find(t => t.fitid === fitid)
+      if (!thisTx) return
+      const thisTokens = tokenize(thisTx.memo)
+      const newSugs: string[] = []
+      previewTxs.forEach(t => {
+        if (t.fitid === fitid || t.alreadyImported || t.isBalance) return
+        if (previewAccountMap[t.fitid] && !suggestedFitids.has(t.fitid)) return
+        if (jaccardSimilarity(thisTokens, tokenize(t.memo)) >= REALTIME_THRESHOLD) newSugs.push(t.fitid)
+      })
+      if (newSugs.length > 0) {
+        setPreviewAccountMap(prev => { const n = { ...prev }; newSugs.forEach(f => { n[f] = accountId }); return n })
+        setSuggestedFitids(prev => { const n = new Set(prev); newSugs.forEach(f => n.add(f)); return n })
+        showToast(`💡 ${newSugs.length} linha${newSugs.length > 1 ? 's semelhantes classificadas' : ' semelhante classificada'} automaticamente`)
+      }
+    }
+  }
+
+  const acceptSuggestion = (fitid: string) =>
+    setSuggestedFitids(prev => { const n = new Set(prev); n.delete(fitid); return n })
+
+  const acceptAllSuggestions = () => setSuggestedFitids(new Set())
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -165,6 +220,7 @@ export default function Lancamentos() {
       const saldoMsg = ledgerBalance ? ` · Saldo ${fmt(ledgerBalance.amount)} salvo` : ''
       showToast(`✓ ${data.imported} importadas${data.skipped ? `, ${data.skipped} ignoradas` : ''}${saldoMsg}`)
       setPreviewTxs(null); setSelectedFitids(new Set()); setPreviewAccountMap({})
+      setSuggestedFitids(new Set())
       setMatchedBankAccount(null); setDetectedBankInfo(null); setLedgerBalance(null)
       load()
     } else {
@@ -301,6 +357,15 @@ export default function Lancamentos() {
                   ))}
                 </select>
               )}
+              {suggesting && (
+                <span style={{ fontSize: 12, color: 'var(--brave-gray)' }}>🔍 buscando sugestões...</span>
+              )}
+              {!suggesting && suggestedFitids.size > 0 && (
+                <button className="btn btn-secondary btn-sm" onClick={acceptAllSuggestions}
+                  style={{ background: '#fff8e1', borderColor: '#f0c040', color: '#7a5c00' }}>
+                  💡 Aceitar todas ({suggestedFitids.size})
+                </button>
+              )}
               {selectedFitids.size === selectableCount
                 ? <button className="btn btn-secondary btn-sm" onClick={() => setSelectedFitids(new Set())}>Desmarcar todas</button>
                 : <button className="btn btn-secondary btn-sm" onClick={selectAll}>Selecionar todas</button>
@@ -308,7 +373,7 @@ export default function Lancamentos() {
               <button className="btn btn-primary" onClick={saveSelected} disabled={saving || selectedFitids.size === 0 || !previewUnitId}>
                 {saving ? 'Salvando...' : `Salvar (${selectedFitids.size})`}
               </button>
-              <button className="btn btn-danger btn-sm" onClick={() => { setPreviewTxs(null); setSelectedFitids(new Set()); setMatchedBankAccount(null); setDetectedBankInfo(null); setLedgerBalance(null) }}>
+              <button className="btn btn-danger btn-sm" onClick={() => { setPreviewTxs(null); setSelectedFitids(new Set()); setPreviewAccountMap({}); setSuggestedFitids(new Set()); setMatchedBankAccount(null); setDetectedBankInfo(null); setLedgerBalance(null) }}>
                 Cancelar
               </button>
             </div>
@@ -341,13 +406,28 @@ export default function Lancamentos() {
                     <td style={{ textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', color: tx.amount >= 0 ? '#1a7a4a' : '#c0392b' }}>
                       {fmt(tx.amount)}
                     </td>
-                    <td style={{ minWidth: 200 }}>
+                    <td style={{ minWidth: 220 }}>
                       {!tx.alreadyImported && !tx.isBalance ? (
-                        <AccountCombobox
-                          accounts={accounts}
-                          value={previewAccountMap[tx.fitid] || ''}
-                          onChange={val => setPreviewAccountMap(prev => ({ ...prev, [tx.fitid]: val }))}
-                        />
+                        <div>
+                          <AccountCombobox
+                            accounts={accounts}
+                            value={previewAccountMap[tx.fitid] || ''}
+                            onChange={val => handlePreviewAccountChange(tx.fitid, val)}
+                          />
+                          {suggestedFitids.has(tx.fitid) && previewAccountMap[tx.fitid] && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
+                              <span style={{ fontSize: 10, color: '#7a5c00', background: '#fff8e1', borderRadius: 4, padding: '1px 5px' }}>
+                                💡 sugestão automática
+                              </span>
+                              <button
+                                onClick={() => acceptSuggestion(tx.fitid)}
+                                style={{ fontSize: 10, color: '#1a7a4a', background: '#e8f5e9', border: 'none', borderRadius: 4, padding: '1px 6px', cursor: 'pointer' }}
+                              >
+                                ✓ aceitar
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       ) : <span style={{ fontSize: 12, color: 'var(--brave-gray)' }}>—</span>}
                     </td>
                     <td>
