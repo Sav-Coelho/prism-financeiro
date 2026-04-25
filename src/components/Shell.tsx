@@ -1,5 +1,6 @@
 'use client'
 import { usePathname, useRouter } from 'next/navigation'
+import LogoBrave from '@/components/LogoBrave'
 
 const NAV = [
   { href: '/dashboard', icon: '◈', label: 'Dashboard' },
@@ -18,7 +19,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     <>
       <header className="topbar">
         <div className="topbar-logo">
-          <img src="/brave-logo.png" alt="Brave" style={{ height: 32, objectFit: 'contain' }} />
+          <LogoBrave height={32} />
           <span style={{ marginLeft: 8 }}>Prism</span>
         </div>
         <div className="topbar-right">
