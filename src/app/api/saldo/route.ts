@@ -79,7 +79,7 @@ function calcDailyBalances(
     txByDate.set(key, (txByDate.get(key) ?? 0) + tx.amount)
   }
 
-  const allDates = [...new Set([...txByDate.keys(), anchorKey])].sort()
+  const allDates = Array.from(new Set(Array.from(txByDate.keys()).concat(anchorKey))).sort()
   const anchorIdx = allDates.indexOf(anchorKey)
   const balanceAtDate = new Map<string, number>()
   balanceAtDate.set(anchorKey, anchorBalance)
