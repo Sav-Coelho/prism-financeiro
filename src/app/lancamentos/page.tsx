@@ -68,8 +68,10 @@ export default function Lancamentos() {
   const [suggestedFitids, setSuggestedFitids] = useState<Set<string>>(new Set())
   const [suggesting, setSuggesting] = useState(false)
   const [pendingSuggestions, setPendingSuggestions] = useState<{ fitid: string; accountId: number; accountName: string; accountCode: string; confidence: number }[]>([])
-  const [suggestionsModal, setSuggestionsModal] = useState<null | 'prompt' | 'review'>(null)
-  const [reviewSelected, setReviewSelected] = useState<Set<string>>(new Set())
+  const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(null)
+  const [panelMinimized, setPanelMinimized] = useState(false)
+  const panelDragging = useRef(false)
+  const panelDragOffset = useRef({ x: 0, y: 0 })
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 4000) }
 
@@ -129,8 +131,8 @@ export default function Lancamentos() {
           .then((suggestions: { fitid: string; accountId: number; accountName: string; accountCode: string; confidence: number }[]) => {
             if (suggestions.length > 0) {
               setPendingSuggestions(suggestions)
-              setReviewSelected(new Set(suggestions.map(s => s.fitid)))
-              setSuggestionsModal('prompt')
+              setPanelMinimized(false)
+              setPanelPos({ x: Math.max(16, window.innerWidth / 2 - 190), y: Math.max(16, window.innerHeight / 2 - 180) })
             }
           })
           .catch(() => {})
@@ -169,28 +171,48 @@ export default function Lancamentos() {
 
   const clearSuggestionBadges = () => setSuggestedFitids(new Set())
 
-  const acceptAllSuggestions = () => {
+  const closePanel = () => { setPendingSuggestions([]); setPanelPos(null) }
+
+  const acceptAllFromPanel = () => {
     const newMap: Record<string, string> = {}
     pendingSuggestions.forEach(s => { newMap[s.fitid] = String(s.accountId) })
     setPreviewAccountMap(prev => ({ ...newMap, ...prev }))
-    setSuggestionsModal(null)
-    setPendingSuggestions([])
-    setReviewSelected(new Set())
+    closePanel()
+    showToast(`✓ ${pendingSuggestions.length} classificações aplicadas`)
   }
 
-  const denySuggestions = () => {
-    setSuggestionsModal(null)
-    setPendingSuggestions([])
-    setReviewSelected(new Set())
+  const acceptSuggestionFromPanel = (fitid: string, accountId: number) => {
+    setPreviewAccountMap(prev => ({ ...prev, [fitid]: String(accountId) }))
+    setPendingSuggestions(prev => {
+      const remaining = prev.filter(s => s.fitid !== fitid)
+      if (remaining.length === 0) setPanelPos(null)
+      return remaining
+    })
   }
 
-  const acceptReviewed = () => {
-    const newMap: Record<string, string> = {}
-    pendingSuggestions.filter(s => reviewSelected.has(s.fitid)).forEach(s => { newMap[s.fitid] = String(s.accountId) })
-    setPreviewAccountMap(prev => ({ ...newMap, ...prev }))
-    setSuggestionsModal(null)
-    setPendingSuggestions([])
-    setReviewSelected(new Set())
+  const denySuggestionFromPanel = (fitid: string) => {
+    setPendingSuggestions(prev => {
+      const remaining = prev.filter(s => s.fitid !== fitid)
+      if (remaining.length === 0) setPanelPos(null)
+      return remaining
+    })
+  }
+
+  const handlePanelDragStart = (e: React.MouseEvent) => {
+    if (!panelPos) return
+    panelDragging.current = true
+    panelDragOffset.current = { x: e.clientX - panelPos.x, y: e.clientY - panelPos.y }
+    const onMove = (ev: MouseEvent) => {
+      if (!panelDragging.current) return
+      setPanelPos({ x: ev.clientX - panelDragOffset.current.x, y: ev.clientY - panelDragOffset.current.y })
+    }
+    const onUp = () => {
+      panelDragging.current = false
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
   }
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -557,88 +579,86 @@ export default function Lancamentos() {
         )}
       </div>
 
-      {suggestionsModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          {suggestionsModal === 'prompt' && (
-            <div className="card" style={{ maxWidth: 460, width: '100%', padding: 36, textAlign: 'center' }}>
-              <div style={{ fontSize: 44, marginBottom: 12 }}>💡</div>
-              <h2 style={{ fontFamily: 'var(--font-sub)', fontSize: 18, fontWeight: 700, marginBottom: 10, color: 'var(--brave-dark)' }}>
-                {pendingSuggestions.length} classificações sugeridas
-              </h2>
-              <p style={{ fontSize: 13, color: 'var(--brave-gray)', marginBottom: 28, lineHeight: 1.7 }}>
-                O classificador inteligente identificou sugestões baseadas no histórico de lançamentos para{' '}
-                <strong style={{ color: 'var(--brave-dark)' }}>{pendingSuggestions.length} transações</strong>.
-                <br />Como deseja prosseguir?
-              </p>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-                <button className="btn btn-danger" onClick={denySuggestions}>Negar</button>
-                <button className="btn btn-secondary" onClick={() => setSuggestionsModal('review')}>Revisar</button>
-                <button className="btn btn-primary" onClick={acceptAllSuggestions}>Aceitar todas</button>
-              </div>
+      {pendingSuggestions.length > 0 && panelPos && (
+        <div style={{
+          position: 'fixed', left: panelPos.x, top: panelPos.y, width: 390, zIndex: 600,
+          borderRadius: 12, boxShadow: '0 10px 36px rgba(0,0,0,0.22)', background: 'var(--brave-white)',
+          border: '1px solid rgba(43,45,66,0.18)', userSelect: 'none',
+        }}>
+          {/* Header — drag handle */}
+          <div
+            onMouseDown={handlePanelDragStart}
+            style={{
+              padding: '10px 12px', background: 'var(--brave-dark)', cursor: 'grab',
+              borderRadius: panelMinimized ? 12 : '12px 12px 0 0',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 15 }}>💡</span>
+              <span style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13, color: '#fff' }}>
+                Classificador inteligente
+              </span>
+              <span style={{ background: 'var(--brave-yellow)', color: 'var(--brave-dark)', borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>
+                {pendingSuggestions.length}
+              </span>
             </div>
-          )}
-          {suggestionsModal === 'review' && (
-            <div className="card" style={{ maxWidth: 760, width: '100%', padding: 0, overflow: 'hidden', maxHeight: '82vh', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--brave-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontFamily: 'var(--font-sub)', fontWeight: 700, fontSize: 14 }}>
-                  Revisar sugestões — {reviewSelected.size} de {pendingSuggestions.length} selecionadas
-                </span>
-                <button
-                  onClick={() => setReviewSelected(reviewSelected.size === pendingSuggestions.length ? new Set() : new Set(pendingSuggestions.map(s => s.fitid)))}
-                  style={{ fontSize: 12, color: 'var(--brave-gray)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
-                >
-                  {reviewSelected.size === pendingSuggestions.length ? 'Desmarcar todas' : 'Selecionar todas'}
-                </button>
-              </div>
-              <div style={{ overflowY: 'auto', flex: 1 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ background: 'var(--brave-light)' }}>
-                      <th style={{ padding: '8px 12px', width: 32 }}></th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Data</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Descrição</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Valor</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Conta sugerida</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'center' }}>Conf.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pendingSuggestions.map(s => {
-                      const tx = previewTxs?.find(t => t.fitid === s.fitid)
-                      const checked = reviewSelected.has(s.fitid)
-                      return (
-                        <tr key={s.fitid} style={{ borderBottom: '1px solid var(--brave-light)', background: checked ? '#f0faf4' : 'transparent', cursor: 'pointer' }}
-                          onClick={() => setReviewSelected(prev => { const n = new Set(prev); if (n.has(s.fitid)) n.delete(s.fitid); else n.add(s.fitid); return n })}>
-                          <td style={{ padding: '8px 12px' }}>
-                            <input type="checkbox" checked={checked} onChange={() => {}} />
-                          </td>
-                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{tx ? fmtDate(tx.date) : '—'}</td>
-                          <td style={{ padding: '8px 12px', maxWidth: 220 }}>{tx?.memo ?? s.fitid}</td>
-                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', color: tx && tx.amount >= 0 ? '#1a7a4a' : '#c0392b' }}>
-                            {tx ? fmt(tx.amount) : '—'}
-                          </td>
-                          <td style={{ padding: '8px 12px' }}>
-                            <span style={{ color: 'var(--brave-gray)', marginRight: 4 }}>{s.accountCode} —</span>
-                            {s.accountName}
-                          </td>
-                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                            <span style={{ fontSize: 11, background: s.confidence >= 70 ? '#e8f5e9' : '#fff8e1', color: s.confidence >= 70 ? '#1a7a4a' : '#7a5c00', borderRadius: 4, padding: '2px 6px' }}>
-                              {s.confidence}%
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div style={{ padding: '12px 24px', borderTop: '1px solid var(--brave-light)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button className="btn btn-secondary" onClick={denySuggestions}>Cancelar</button>
-                <button className="btn btn-primary" onClick={acceptReviewed} disabled={reviewSelected.size === 0}>
-                  Aplicar {reviewSelected.size} selecionada{reviewSelected.size !== 1 ? 's' : ''}
-                </button>
-              </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                onMouseDown={e => e.stopPropagation()}
+                onClick={() => setPanelMinimized(m => !m)}
+                title={panelMinimized ? 'Expandir' : 'Minimizar'}
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', borderRadius: 4, width: 24, height: 24, cursor: 'pointer', fontSize: 11 }}
+              >{panelMinimized ? '▲' : '▼'}</button>
+              <button
+                onMouseDown={e => e.stopPropagation()}
+                onClick={closePanel}
+                title="Fechar (negar todas)"
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', borderRadius: 4, width: 24, height: 24, cursor: 'pointer', fontSize: 13 }}
+              >✕</button>
             </div>
+          </div>
+
+          {!panelMinimized && (
+            <>
+              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                {pendingSuggestions.map((s, i) => {
+                  const tx = previewTxs?.find(t => t.fitid === s.fitid)
+                  return (
+                    <div key={s.fitid} style={{ padding: '9px 14px', borderBottom: i < pendingSuggestions.length - 1 ? '1px solid var(--brave-light)' : 'none' }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--brave-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 4 }}>
+                        {tx?.memo ?? s.fitid}
+                        {tx && (
+                          <span style={{ marginLeft: 8, fontWeight: 400, color: tx.amount >= 0 ? '#1a7a4a' : '#c0392b' }}>{fmt(tx.amount)}</span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <div style={{ fontSize: 11, color: 'var(--brave-gray)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span>{s.accountCode} — </span>{s.accountName}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                          <span style={{ fontSize: 10, background: s.confidence >= 70 ? '#e8f5e9' : '#fff8e1', color: s.confidence >= 70 ? '#1a7a4a' : '#7a5c00', borderRadius: 4, padding: '1px 5px' }}>
+                            {s.confidence}%
+                          </span>
+                          <button onClick={() => denySuggestionFromPanel(s.fitid)} title="Negar"
+                            style={{ fontSize: 11, background: '#fdecea', color: '#c0392b', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontWeight: 600 }}>
+                            ✕
+                          </button>
+                          <button onClick={() => acceptSuggestionFromPanel(s.fitid, s.accountId)} title="Aceitar"
+                            style={{ fontSize: 11, background: '#e8f5e9', color: '#1a7a4a', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontWeight: 600 }}>
+                            ✓
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <div style={{ padding: '10px 14px', borderTop: '1px solid var(--brave-light)', display: 'flex', gap: 6, justifyContent: 'flex-end', background: 'var(--brave-light)', borderRadius: '0 0 12px 12px' }}>
+                <button className="btn btn-secondary btn-sm" onClick={closePanel}>Negar todas</button>
+                <button className="btn btn-primary btn-sm" onClick={acceptAllFromPanel}>Aceitar todas ({pendingSuggestions.length})</button>
+              </div>
+            </>
           )}
         </div>
       )}
