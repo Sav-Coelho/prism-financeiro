@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import Shell from '@/components/Shell'
+import AccountCombobox from '@/components/AccountCombobox'
 import { MONTH_NAMES } from '@/lib/dre'
 
 const fmt = (v: number) =>
@@ -342,16 +343,11 @@ export default function Lancamentos() {
                     </td>
                     <td style={{ minWidth: 200 }}>
                       {!tx.alreadyImported && !tx.isBalance ? (
-                        <select className="form-select" style={{ fontSize: 12, padding: '5px 8px' }}
+                        <AccountCombobox
+                          accounts={accounts}
                           value={previewAccountMap[tx.fitid] || ''}
-                          onChange={e => setPreviewAccountMap(prev => ({ ...prev, [tx.fitid]: e.target.value }))}>
-                          <option value="">— Sem classificação —</option>
-                          {accounts.filter(a => a.type === 'NEUTRO').map(a => (
-                            <option key={a.id} value={a.id}>↔ {a.name}</option>
-                          ))}
-                          {accounts.some(a => a.type === 'NEUTRO') && <option disabled>──────────────</option>}
-                          {accounts.filter(a => a.type !== 'NEUTRO').map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                        </select>
+                          onChange={val => setPreviewAccountMap(prev => ({ ...prev, [tx.fitid]: val }))}
+                        />
                       ) : <span style={{ fontSize: 12, color: 'var(--brave-gray)' }}>—</span>}
                     </td>
                     <td>
@@ -433,15 +429,11 @@ export default function Lancamentos() {
                       {fmt(tx.amount)}
                     </td>
                     <td style={{ minWidth: 200 }}>
-                      <select className="form-select" style={{ fontSize: 12, padding: '5px 8px' }}
-                        value={tx.accountId || ''} onChange={e => classify(tx.id, e.target.value)}>
-                        <option value="">— Sem classificação —</option>
-                        {accounts.filter(a => a.type === 'NEUTRO').map(a => (
-                          <option key={a.id} value={a.id}>↔ {a.name}</option>
-                        ))}
-                        {accounts.some(a => a.type === 'NEUTRO') && <option disabled>──────────────</option>}
-                        {accounts.filter(a => a.type !== 'NEUTRO').map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                      </select>
+                      <AccountCombobox
+                        accounts={accounts}
+                        value={String(tx.accountId || '')}
+                        onChange={val => classify(tx.id, val)}
+                      />
                     </td>
                     <td>
                       <button className="btn btn-danger btn-sm" onClick={() => remove(tx.id)}>✕</button>
