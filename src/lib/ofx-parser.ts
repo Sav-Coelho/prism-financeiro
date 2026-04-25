@@ -10,6 +10,7 @@ export interface OFXBankInfo {
   bankId: string | null
   acctId: string | null
   acctType: string | null
+  org: string | null
 }
 
 export interface OFXBalance {
@@ -56,10 +57,15 @@ export function parseOFX(content: string): OFXParseResult {
 
 function extractBankInfo(text: string): OFXBankInfo {
   const acctBlock = text.match(/<BANKACCTFROM>([\s\S]*?)<\/BANKACCTFROM>/i)?.[1] ?? ''
+  const fiBlock = text.match(/<FI>([\s\S]*?)<\/FI>/i)?.[1] ?? ''
+  // ORG also appears without closing tag in some OFX files, search header broadly
+  const header = text.split(/<STMTTRN>/i)[0]
+  const org = extractTag(fiBlock, 'ORG') || extractTag(header, 'ORG')
   return {
     bankId: extractTag(acctBlock, 'BANKID'),
     acctId: extractTag(acctBlock, 'ACCTID'),
     acctType: extractTag(acctBlock, 'ACCTTYPE'),
+    org,
   }
 }
 

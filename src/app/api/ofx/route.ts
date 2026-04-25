@@ -69,13 +69,14 @@ export async function POST(req: NextRequest) {
   }
 
   // Link OFX identifiers to bank account if not yet set
-  if (bankAccId && bankInfo?.bankId && bankInfo.acctId) {
+  const bankIdentifier = bankInfo?.bankId || bankInfo?.org
+  if (bankAccId && bankIdentifier && bankInfo?.acctId) {
     try {
       const acc = await prisma.bankAccount.findUnique({ where: { id: bankAccId } })
       if (acc && !acc.ofxBankId) {
         await prisma.bankAccount.update({
           where: { id: bankAccId },
-          data: { ofxBankId: bankInfo.bankId, ofxAcctId: bankInfo.acctId },
+          data: { ofxBankId: bankIdentifier, ofxAcctId: bankInfo.acctId },
         })
       }
     } catch {

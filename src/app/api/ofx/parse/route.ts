@@ -22,19 +22,24 @@ export async function POST(req: NextRequest) {
   })
   const existingSet = new Set(existing.map(e => e.fitid))
 
-  // Try to find matching bank account
+  // Try to find matching bank account — by bankId, then by org (fallback)
   let matchedBankAccount: { id: number; name: string; unitId: number; unitName: string } | null = null
-  if (bankInfo.bankId && bankInfo.acctId) {
-    const found = await prisma.bankAccount.findFirst({
-      where: { ofxBankId: bankInfo.bankId, ofxAcctId: bankInfo.acctId },
-      include: { unit: { select: { id: true, name: true } } }
-    })
-    if (found) {
-      matchedBankAccount = {
-        id: found.id,
-        name: found.name,
-        unitId: found.unitId,
-        unitName: found.unit.name,
+  const acctId = bankInfo.acctId
+  if (acctId) {
+    const candidates = [bankInfo.bankId, bankInfo.org].filter(Boolean) as string[]
+    for (const identifier of candidates) {
+      const found = await prisma.bankAccount.findFirst({
+        where: { ofxBankId: identifier, ofxAcctId: acctId },
+        include: { unit: { select: { id: true, name: true } } }
+      })
+      if (found) {
+        matchedBankAccount = {
+          id: found.id,
+          name: found.name,
+          unitId: found.unitId,
+          unitName: found.unit.name,
+        }
+        break
       }
     }
   }

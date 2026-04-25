@@ -260,7 +260,7 @@ export default function Lancamentos() {
                   </span>
                 )}
               </div>
-              {detectedBankInfo?.bankId && (
+              {(detectedBankInfo?.bankId || detectedBankInfo?.org) && (
                 <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                   {matchedBankAccount ? (
                     <span style={{ fontSize: 12, background: '#e8f5e9', color: '#1a7a4a', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
@@ -268,7 +268,9 @@ export default function Lancamentos() {
                     </span>
                   ) : (
                     <span style={{ fontSize: 12, background: '#fff8e1', color: '#b58b00', borderRadius: 4, padding: '2px 8px' }}>
-                      Banco {detectedBankInfo.bankId} · Conta ...{detectedBankInfo.acctId?.slice(-4)} — não mapeado ainda
+                      {detectedBankInfo.org || detectedBankInfo.bankId}
+                      {detectedBankInfo.acctId && ` · Conta ...${detectedBankInfo.acctId.slice(-4)}`}
+                      {' — selecione a conta bancária abaixo'}
                     </span>
                   )}
                 </div>
