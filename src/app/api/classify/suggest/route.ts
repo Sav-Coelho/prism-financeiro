@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   // Deduplicate: for each unique memo, find the most frequently used account
   const memoAccountFreq = new Map<string, Map<number, { account: NonNullable<(typeof history)[0]['account']>; count: number }>>()
   for (const tx of history) {
-    if (!tx.account || tx.account.dreGroup === 'Transferência entre Contas') continue
+    if (!tx.account || !tx.memo || tx.account.dreGroup === 'Transferência entre Contas') continue
     const existing = memoAccountFreq.get(tx.memo) ?? new Map()
     const entry = existing.get(tx.accountId!) ?? { account: tx.account, count: 0 }
     entry.count++
