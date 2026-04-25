@@ -67,6 +67,9 @@ export default function Lancamentos() {
   const [ledgerBalance, setLedgerBalance] = useState<LedgerBalance | null>(null)
   const [suggestedFitids, setSuggestedFitids] = useState<Set<string>>(new Set())
   const [suggesting, setSuggesting] = useState(false)
+  const [pendingSuggestions, setPendingSuggestions] = useState<{ fitid: string; accountId: number; accountName: string; accountCode: string; confidence: number }[]>([])
+  const [suggestionsModal, setSuggestionsModal] = useState<null | 'prompt' | 'review'>(null)
+  const [reviewSelected, setReviewSelected] = useState<Set<string>>(new Set())
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 4000) }
 
@@ -123,13 +126,11 @@ export default function Lancamentos() {
           body: JSON.stringify({ memos: toSuggest.map(t => ({ fitid: t.fitid, memo: t.memo })) }),
         })
           .then(r => r.json())
-          .then((suggestions: { fitid: string; accountId: number }[]) => {
+          .then((suggestions: { fitid: string; accountId: number; accountName: string; accountCode: string; confidence: number }[]) => {
             if (suggestions.length > 0) {
-              const newMap: Record<string, string> = {}
-              const newSuggested = new Set<string>()
-              suggestions.forEach(s => { newMap[s.fitid] = String(s.accountId); newSuggested.add(s.fitid) })
-              setPreviewAccountMap(prev => ({ ...newMap, ...prev }))
-              setSuggestedFitids(newSuggested)
+              setPendingSuggestions(suggestions)
+              setReviewSelected(new Set(suggestions.map(s => s.fitid)))
+              setSuggestionsModal('prompt')
             }
           })
           .catch(() => {})
@@ -166,7 +167,31 @@ export default function Lancamentos() {
   const acceptSuggestion = (fitid: string) =>
     setSuggestedFitids(prev => { const n = new Set(prev); n.delete(fitid); return n })
 
-  const acceptAllSuggestions = () => setSuggestedFitids(new Set())
+  const clearSuggestionBadges = () => setSuggestedFitids(new Set())
+
+  const acceptAllSuggestions = () => {
+    const newMap: Record<string, string> = {}
+    pendingSuggestions.forEach(s => { newMap[s.fitid] = String(s.accountId) })
+    setPreviewAccountMap(prev => ({ ...newMap, ...prev }))
+    setSuggestionsModal(null)
+    setPendingSuggestions([])
+    setReviewSelected(new Set())
+  }
+
+  const denySuggestions = () => {
+    setSuggestionsModal(null)
+    setPendingSuggestions([])
+    setReviewSelected(new Set())
+  }
+
+  const acceptReviewed = () => {
+    const newMap: Record<string, string> = {}
+    pendingSuggestions.filter(s => reviewSelected.has(s.fitid)).forEach(s => { newMap[s.fitid] = String(s.accountId) })
+    setPreviewAccountMap(prev => ({ ...newMap, ...prev }))
+    setSuggestionsModal(null)
+    setPendingSuggestions([])
+    setReviewSelected(new Set())
+  }
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -361,9 +386,9 @@ export default function Lancamentos() {
                 <span style={{ fontSize: 12, color: 'var(--brave-gray)' }}>🔍 buscando sugestões...</span>
               )}
               {!suggesting && suggestedFitids.size > 0 && (
-                <button className="btn btn-secondary btn-sm" onClick={acceptAllSuggestions}
+                <button className="btn btn-secondary btn-sm" onClick={clearSuggestionBadges}
                   style={{ background: '#fff8e1', borderColor: '#f0c040', color: '#7a5c00' }}>
-                  💡 Aceitar todas ({suggestedFitids.size})
+                  💡 Confirmar todas ({suggestedFitids.size})
                 </button>
               )}
               {selectedFitids.size === selectableCount
@@ -525,6 +550,92 @@ export default function Lancamentos() {
           </div>
         )}
       </div>
+
+      {suggestionsModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          {suggestionsModal === 'prompt' && (
+            <div className="card" style={{ maxWidth: 460, width: '100%', padding: 36, textAlign: 'center' }}>
+              <div style={{ fontSize: 44, marginBottom: 12 }}>💡</div>
+              <h2 style={{ fontFamily: 'var(--font-sub)', fontSize: 18, fontWeight: 700, marginBottom: 10, color: 'var(--brave-dark)' }}>
+                {pendingSuggestions.length} classificações sugeridas
+              </h2>
+              <p style={{ fontSize: 13, color: 'var(--brave-gray)', marginBottom: 28, lineHeight: 1.7 }}>
+                O classificador inteligente identificou sugestões baseadas no histórico de lançamentos para{' '}
+                <strong style={{ color: 'var(--brave-dark)' }}>{pendingSuggestions.length} transações</strong>.
+                <br />Como deseja prosseguir?
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button className="btn btn-danger" onClick={denySuggestions}>Negar</button>
+                <button className="btn btn-secondary" onClick={() => setSuggestionsModal('review')}>Revisar</button>
+                <button className="btn btn-primary" onClick={acceptAllSuggestions}>Aceitar todas</button>
+              </div>
+            </div>
+          )}
+          {suggestionsModal === 'review' && (
+            <div className="card" style={{ maxWidth: 760, width: '100%', padding: 0, overflow: 'hidden', maxHeight: '82vh', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--brave-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontFamily: 'var(--font-sub)', fontWeight: 700, fontSize: 14 }}>
+                  Revisar sugestões — {reviewSelected.size} de {pendingSuggestions.length} selecionadas
+                </span>
+                <button
+                  onClick={() => setReviewSelected(reviewSelected.size === pendingSuggestions.length ? new Set() : new Set(pendingSuggestions.map(s => s.fitid)))}
+                  style={{ fontSize: 12, color: 'var(--brave-gray)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  {reviewSelected.size === pendingSuggestions.length ? 'Desmarcar todas' : 'Selecionar todas'}
+                </button>
+              </div>
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: 'var(--brave-light)' }}>
+                      <th style={{ padding: '8px 12px', width: 32 }}></th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Data</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Descrição</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Valor</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Conta sugerida</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'center' }}>Conf.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingSuggestions.map(s => {
+                      const tx = previewTxs?.find(t => t.fitid === s.fitid)
+                      const checked = reviewSelected.has(s.fitid)
+                      return (
+                        <tr key={s.fitid} style={{ borderBottom: '1px solid var(--brave-light)', background: checked ? '#f0faf4' : 'transparent', cursor: 'pointer' }}
+                          onClick={() => setReviewSelected(prev => { const n = new Set(prev); if (n.has(s.fitid)) n.delete(s.fitid); else n.add(s.fitid); return n })}>
+                          <td style={{ padding: '8px 12px' }}>
+                            <input type="checkbox" checked={checked} onChange={() => {}} />
+                          </td>
+                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{tx ? fmtDate(tx.date) : '—'}</td>
+                          <td style={{ padding: '8px 12px', maxWidth: 220 }}>{tx?.memo ?? s.fitid}</td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', color: tx && tx.amount >= 0 ? '#1a7a4a' : '#c0392b' }}>
+                            {tx ? fmt(tx.amount) : '—'}
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <span style={{ color: 'var(--brave-gray)', marginRight: 4 }}>{s.accountCode} —</span>
+                            {s.accountName}
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                            <span style={{ fontSize: 11, background: s.confidence >= 70 ? '#e8f5e9' : '#fff8e1', color: s.confidence >= 70 ? '#1a7a4a' : '#7a5c00', borderRadius: 4, padding: '2px 6px' }}>
+                              {s.confidence}%
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: '12px 24px', borderTop: '1px solid var(--brave-light)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={denySuggestions}>Cancelar</button>
+                <button className="btn btn-primary" onClick={acceptReviewed} disabled={reviewSelected.size === 0}>
+                  Aplicar {reviewSelected.size} selecionada{reviewSelected.size !== 1 ? 's' : ''}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </Shell>
