@@ -346,7 +346,11 @@ export default function Lancamentos() {
                           value={previewAccountMap[tx.fitid] || ''}
                           onChange={e => setPreviewAccountMap(prev => ({ ...prev, [tx.fitid]: e.target.value }))}>
                           <option value="">— Sem classificação —</option>
-                          {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                          {accounts.filter(a => a.type === 'NEUTRO').map(a => (
+                            <option key={a.id} value={a.id}>↔ {a.name}</option>
+                          ))}
+                          {accounts.some(a => a.type === 'NEUTRO') && <option disabled>──────────────</option>}
+                          {accounts.filter(a => a.type !== 'NEUTRO').map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                         </select>
                       ) : <span style={{ fontSize: 12, color: 'var(--brave-gray)' }}>—</span>}
                     </td>
@@ -432,7 +436,11 @@ export default function Lancamentos() {
                       <select className="form-select" style={{ fontSize: 12, padding: '5px 8px' }}
                         value={tx.accountId || ''} onChange={e => classify(tx.id, e.target.value)}>
                         <option value="">— Sem classificação —</option>
-                        {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                        {accounts.filter(a => a.type === 'NEUTRO').map(a => (
+                          <option key={a.id} value={a.id}>↔ {a.name}</option>
+                        ))}
+                        {accounts.some(a => a.type === 'NEUTRO') && <option disabled>──────────────</option>}
+                        {accounts.filter(a => a.type !== 'NEUTRO').map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                       </select>
                     </td>
                     <td>

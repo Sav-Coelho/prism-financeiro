@@ -37,6 +37,7 @@ export function calcDRE(
   for (const tx of transactions) {
     if (!tx.account) continue
     const { dreGroup, name, code } = tx.account
+    if (dreGroup === 'Transferência entre Contas') continue
     const val = Math.abs(tx.amount)
     byGroup[dreGroup] = (byGroup[dreGroup] || 0) + val
     if (!byAccount[dreGroup]) byAccount[dreGroup] = []

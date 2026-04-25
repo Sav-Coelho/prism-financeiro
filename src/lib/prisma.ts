@@ -16,6 +16,24 @@ const UNITS_DATA = [
   { name: 'FERNANDA',   banks: ['ITAU FERNANDA', 'BRADESCO FERNANDA', 'BNB FERNANDA'] },
 ]
 
+async function seedTransferAccount() {
+  try {
+    await prisma.account.upsert({
+      where: { code: '9.9.01' },
+      update: {},
+      create: {
+        code: '9.9.01',
+        name: 'Transferência entre Contas',
+        type: 'NEUTRO',
+        dreGroup: 'Transferência entre Contas',
+        active: true,
+      },
+    })
+  } catch {
+    // non-fatal
+  }
+}
+
 async function seedUnits() {
   if (globalForPrisma.seeded) return
   globalForPrisma.seeded = true
@@ -39,3 +57,4 @@ async function seedUnits() {
 }
 
 seedUnits()
+seedTransferAccount()

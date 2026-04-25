@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from 'react'
 import Shell from '@/components/Shell'
 
-const TYPES = ['RECEITA', 'DEDUCAO', 'CUSTO', 'DESPESA', 'IMPOSTO']
+const TYPES = ['RECEITA', 'DEDUCAO', 'CUSTO', 'DESPESA', 'IMPOSTO', 'NEUTRO']
 
 const DRE_GROUPS: Record<string, string[]> = {
   RECEITA: ['Receita Operacional', 'Receita Não Operacional'],
@@ -17,6 +17,7 @@ const DRE_GROUPS: Record<string, string[]> = {
     'Despesas Não Operacionais',
   ],
   IMPOSTO: ['Impostos'],
+  NEUTRO: ['Transferência entre Contas'],
 }
 
 const DEFAULTS = [
@@ -111,6 +112,8 @@ const DEFAULTS = [
   { code: '7.2.08', name: 'Multas e Penalidades Fiscais', type: 'DESPESA', dreGroup: 'Despesas Não Operacionais' },
   // Impostos
   { code: '8.1.01', name: 'Impostos sobre o Lucro', type: 'IMPOSTO', dreGroup: 'Impostos' },
+  // Neutro — não entra no DRE
+  { code: '9.9.01', name: 'Transferência entre Contas', type: 'NEUTRO', dreGroup: 'Transferência entre Contas' },
 ]
 
 export default function PlanoDeContas() {
@@ -192,7 +195,8 @@ export default function PlanoDeContas() {
   const typeBadge = (type: string) => {
     const map: Record<string, string> = {
       RECEITA: 'badge-receita', CUSTO: 'badge-custo',
-      DESPESA: 'badge-despesa', DEDUCAO: 'badge-deducao', IMPOSTO: 'badge-imposto'
+      DESPESA: 'badge-despesa', DEDUCAO: 'badge-deducao', IMPOSTO: 'badge-imposto',
+      NEUTRO: 'badge-neutro'
     }
     return map[type] || ''
   }

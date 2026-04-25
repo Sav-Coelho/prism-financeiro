@@ -311,6 +311,7 @@ tr:hover td { background: rgba(237,242,244,0.6); }
 .badge-despesa { background: #fdebd0; color: #b45309; }
 .badge-deducao { background: #e8e6fd; color: #5b21b6; }
 .badge-imposto { background: #fce4ec; color: #880e4f; }
+.badge-neutro  { background: #eceff1; color: #546e7a; }
 
 /* DRE table */
 .dre-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-radius: 8px; }
