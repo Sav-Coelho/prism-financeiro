@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Brave DRE System - Prism',
+  title: 'Prism DRE System',
   description: 'Sistema de Gestão Financeira',
 }
 
