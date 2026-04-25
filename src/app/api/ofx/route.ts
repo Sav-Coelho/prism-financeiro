@@ -14,7 +14,7 @@ interface SaveBody {
   transactions: IncomingTx[]
   bankAccountId?: string | number | null
   ledgerBalance?: { amount: number; date: string | null } | null
-  bankInfo?: { bankId: string | null; acctId: string | null } | null
+  bankInfo?: { bankId: string | null; acctId: string | null; org: string | null } | null
 }
 
 export async function POST(req: NextRequest) {
