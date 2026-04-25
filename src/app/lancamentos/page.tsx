@@ -53,6 +53,7 @@ export default function Lancamentos() {
   const [toast, setToast] = useState('')
   const [drag, setDrag] = useState(false)
   const [filter, setFilter] = useState<'all' | 'sem-conta' | 'classificado'>('all')
+  const [selectedTxIds, setSelectedTxIds] = useState<Set<number>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [parsing, setParsing] = useState(false)
@@ -292,8 +293,25 @@ export default function Lancamentos() {
   const remove = async (id: number) => {
     await fetch(`/api/transactions/${id}`, { method: 'DELETE' })
     setTransactions(prev => prev.filter(t => t.id !== id))
+    setSelectedTxIds(prev => { const n = new Set(prev); n.delete(id); return n })
     showToast('Lançamento removido')
   }
+
+  const removeSelected = async () => {
+    if (selectedTxIds.size === 0) return
+    await Promise.all(Array.from(selectedTxIds).map(id =>
+      fetch(`/api/transactions/${id}`, { method: 'DELETE' })
+    ))
+    setTransactions(prev => prev.filter(t => !selectedTxIds.has(t.id)))
+    showToast(`${selectedTxIds.size} lançamento${selectedTxIds.size > 1 ? 's removidos' : ' removido'}`)
+    setSelectedTxIds(new Set())
+  }
+
+  const toggleTxSelect = (id: number) =>
+    setSelectedTxIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+
+  const selectAllVisible = () => setSelectedTxIds(new Set(filtered.map(t => t.id)))
+  const clearTxSelection = () => setSelectedTxIds(new Set())
 
   const filtered = transactions.filter(t => {
     if (filter === 'sem-conta') return !t.accountId
@@ -514,15 +532,26 @@ export default function Lancamentos() {
       </div>
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--brave-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--brave-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13 }}>
             {unitId ? units.find(u => u.id === parseInt(unitId))?.name : 'Consolidado'} — {MONTH_NAMES[month]}/{year} — {filtered.length} lançamentos
           </span>
-          {semConta > 0 && (
-            <span style={{ fontSize: 12, color: '#c0392b', fontWeight: 500 }}>
-              ⚠ {semConta} sem conta — não entrarão no DRE
-            </span>
-          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {semConta > 0 && (
+              <span style={{ fontSize: 12, color: '#c0392b', fontWeight: 500 }}>
+                ⚠ {semConta} sem conta
+              </span>
+            )}
+            {selectedTxIds.size === filtered.length && filtered.length > 0
+              ? <button className="btn btn-secondary btn-sm" onClick={clearTxSelection}>Desmarcar todas</button>
+              : <button className="btn btn-secondary btn-sm" onClick={selectAllVisible} disabled={filtered.length === 0}>Selecionar todas</button>
+            }
+            {selectedTxIds.size > 0 && (
+              <button className="btn btn-danger btn-sm" onClick={removeSelected}>
+                Excluir selecionadas ({selectedTxIds.size})
+              </button>
+            )}
+          </div>
         </div>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--brave-gray)' }}>Carregando...</div>
@@ -537,6 +566,7 @@ export default function Lancamentos() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 32 }}></th>
                   <th>Data</th>
                   <th>Descrição</th>
                   <th>Unidade</th>
@@ -547,7 +577,11 @@ export default function Lancamentos() {
               </thead>
               <tbody>
                 {filtered.map(tx => (
-                  <tr key={tx.id}>
+                  <tr key={tx.id} style={{ background: selectedTxIds.has(tx.id) ? '#fef9e7' : undefined }}>
+                    <td>
+                      <input type="checkbox" checked={selectedTxIds.has(tx.id)}
+                        onChange={() => toggleTxSelect(tx.id)} style={{ cursor: 'pointer' }} />
+                    </td>
                     <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtDate(tx.date)}</td>
                     <td style={{ maxWidth: 240 }}>
                       <div style={{ fontSize: 13 }}>{tx.description}</div>
