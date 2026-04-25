@@ -28,79 +28,69 @@ export async function POST(req: NextRequest) {
 
   const bankAccId = bankAccountId ? parseInt(String(bankAccountId)) : null
 
-  let imported = 0
-  let skipped = 0
-
-  for (const tx of transactions) {
-    try {
-      const d = new Date(tx.date)
-      await prisma.transaction.create({
-        data: {
-          fitid: tx.fitid,
-          date: d,
-          description: tx.memo,
-          memo: tx.memo,
-          amount: tx.amount,
-          month: d.getMonth() + 1,
-          year: d.getFullYear(),
-          accountId: tx.accountId ? parseInt(String(tx.accountId)) : null,
-          unitId: tx.unitId ? parseInt(String(tx.unitId)) : null,
-          bankAccountId: bankAccId,
-        }
-      })
-      imported++
-    } catch {
-      skipped++
+  const data = transactions.map(tx => {
+    const d = new Date(tx.date)
+    return {
+      fitid: tx.fitid,
+      date: d,
+      description: tx.memo,
+      memo: tx.memo,
+      amount: tx.amount,
+      month: d.getMonth() + 1,
+      year: d.getFullYear(),
+      accountId: tx.accountId ? parseInt(String(tx.accountId)) : null,
+      unitId: tx.unitId ? parseInt(String(tx.unitId)) : null,
+      bankAccountId: bankAccId,
     }
-  }
+  })
 
-  // Save per-day balance snapshots from isBalance transactions in OFX
+  const result = await prisma.transaction.createMany({ data, skipDuplicates: true })
+  const imported = result.count
+  const skipped = transactions.length - imported
+
+  // Save balance snapshots (daily + ledger) in parallel
+  const snapshotOps: Promise<unknown>[] = []
+
   if (bankAccId && Array.isArray(balanceTransactions)) {
     for (const bt of balanceTransactions) {
-      try {
-        const snapDate = new Date(bt.date)
-        snapDate.setHours(0, 0, 0, 0)
-        await prisma.balanceSnapshot.upsert({
+      const snapDate = new Date(bt.date)
+      snapDate.setHours(0, 0, 0, 0)
+      snapshotOps.push(
+        prisma.balanceSnapshot.upsert({
           where: { bankAccountId_date: { bankAccountId: bankAccId, date: snapDate } },
           update: { balance: bt.amount },
           create: { bankAccountId: bankAccId, date: snapDate, balance: bt.amount },
-        })
-      } catch {
-        // non-fatal
-      }
+        }).catch(() => {})
+      )
     }
   }
 
-  // Save LEDGERBAL snapshot
   if (bankAccId && ledgerBalance?.amount != null && ledgerBalance.date) {
-    try {
-      const snapDate = new Date(ledgerBalance.date)
-      snapDate.setHours(0, 0, 0, 0)
-      await prisma.balanceSnapshot.upsert({
+    const snapDate = new Date(ledgerBalance.date)
+    snapDate.setHours(0, 0, 0, 0)
+    snapshotOps.push(
+      prisma.balanceSnapshot.upsert({
         where: { bankAccountId_date: { bankAccountId: bankAccId, date: snapDate } },
         update: { balance: ledgerBalance.amount },
         create: { bankAccountId: bankAccId, date: snapDate, balance: ledgerBalance.amount },
-      })
-    } catch {
-      // non-fatal
-    }
+      }).catch(() => {})
+    )
   }
 
-  // Link OFX identifiers to bank account if not yet set
+  // Link OFX identifiers and save snapshots in parallel
   const bankIdentifier = bankInfo?.bankId || bankInfo?.org
-  if (bankAccId && bankIdentifier && bankInfo?.acctId) {
-    try {
-      const acc = await prisma.bankAccount.findUnique({ where: { id: bankAccId } })
-      if (acc && !acc.ofxBankId) {
-        await prisma.bankAccount.update({
-          where: { id: bankAccId },
-          data: { ofxBankId: bankIdentifier, ofxAcctId: bankInfo.acctId },
-        })
-      }
-    } catch {
-      // non-fatal
-    }
-  }
+  const linkOp = bankAccId && bankIdentifier && bankInfo?.acctId
+    ? prisma.bankAccount.findUnique({ where: { id: bankAccId } }).then(acc => {
+        if (acc && !acc.ofxBankId) {
+          return prisma.bankAccount.update({
+            where: { id: bankAccId },
+            data: { ofxBankId: bankIdentifier, ofxAcctId: bankInfo!.acctId! },
+          })
+        }
+      }).catch(() => {})
+    : Promise.resolve()
+
+  await Promise.all([...snapshotOps, linkOp])
 
   return NextResponse.json({ imported, skipped })
 }
