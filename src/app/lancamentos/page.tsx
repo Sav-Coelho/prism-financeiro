@@ -23,6 +23,7 @@ interface BankInfo {
   bankId: string | null
   acctId: string | null
   acctType: string | null
+  org: string | null
 }
 
 interface MatchedBankAccount {
