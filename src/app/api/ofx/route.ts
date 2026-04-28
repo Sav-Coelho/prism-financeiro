@@ -8,6 +8,8 @@ interface IncomingTx {
   memo: string
   accountId?: string | number | null
   unitId?: string | number | null
+  transferToUnitId?: string | number | null
+  transferToBankAccountId?: string | number | null
 }
 
 interface SaveBody {
@@ -41,12 +43,35 @@ export async function POST(req: NextRequest) {
       accountId: tx.accountId ? parseInt(String(tx.accountId)) : null,
       unitId: tx.unitId ? parseInt(String(tx.unitId)) : null,
       bankAccountId: bankAccId,
+      transferToUnitId: tx.transferToUnitId ? parseInt(String(tx.transferToUnitId)) : null,
+      transferToBankAccountId: tx.transferToBankAccountId ? parseInt(String(tx.transferToBankAccountId)) : null,
     }
   })
 
   const result = await prisma.transaction.createMany({ data, skipDuplicates: true })
   const imported = result.count
   const skipped = transactions.length - imported
+
+  // Create counterpart entry transactions for transfers
+  const transferTxs = transactions.filter(tx => tx.transferToBankAccountId && tx.accountId)
+  if (transferTxs.length > 0) {
+    const counterparts = transferTxs.map(tx => {
+      const d = new Date(tx.date)
+      return {
+        fitid: tx.fitid + '_entrada',
+        date: d,
+        description: 'Entrada de Transferência - ' + tx.memo,
+        memo: 'Entrada de Transferência - ' + tx.memo,
+        amount: Math.abs(tx.amount),
+        month: d.getMonth() + 1,
+        year: d.getFullYear(),
+        accountId: tx.accountId ? parseInt(String(tx.accountId)) : null,
+        unitId: tx.transferToUnitId ? parseInt(String(tx.transferToUnitId)) : null,
+        bankAccountId: tx.transferToBankAccountId ? parseInt(String(tx.transferToBankAccountId)) : null,
+      }
+    })
+    await prisma.transaction.createMany({ data: counterparts, skipDuplicates: true })
+  }
 
   // Save balance snapshots (daily + ledger) in parallel
   const snapshotOps: Promise<unknown>[] = []

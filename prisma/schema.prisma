@@ -50,11 +50,13 @@ model Transaction {
   account       Account?     @relation(fields: [accountId], references: [id])
   unitId        Int?
   unit          Unit?        @relation(fields: [unitId], references: [id])
-  bankAccountId Int?
-  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
-  month         Int
-  year          Int
-  createdAt     DateTime     @default(now())
+  bankAccountId           Int?
+  bankAccount             BankAccount? @relation(fields: [bankAccountId], references: [id])
+  transferToUnitId        Int?
+  transferToBankAccountId Int?
+  month                   Int
+  year                    Int
+  createdAt               DateTime     @default(now())
 }
 
 model BalanceSnapshot {

@@ -1,4 +1,4 @@
-export type DRELineType = 'section' | 'group' | 'account' | 'subtotal' | 'breakeven'
+export type DRELineType = 'section' | 'group' | 'account' | 'subtotal' | 'breakeven' | 'transfer'
 
 export interface DRELine {
   type: DRELineType
@@ -33,11 +33,17 @@ export function calcDRE(
   // Aggregate by dreGroup and individual account
   const byGroup: Record<string, number> = {}
   const byAccount: Record<string, AccEntry[]> = {}
+  let transferSaida = 0
+  let transferEntrada = 0
 
   for (const tx of transactions) {
     if (!tx.account) continue
     const { dreGroup, name, code } = tx.account
-    if (dreGroup === 'Transferência entre Contas') continue
+    if (dreGroup === 'Transferência entre Contas') {
+      if (tx.amount < 0) transferSaida += Math.abs(tx.amount)
+      else transferEntrada += tx.amount
+      continue
+    }
     const val = Math.abs(tx.amount)
     byGroup[dreGroup] = (byGroup[dreGroup] || 0) + val
     if (!byAccount[dreGroup]) byAccount[dreGroup] = []
@@ -156,6 +162,13 @@ export function calcDRE(
     ...accts('Impostos', false, 1),
 
     { type: 'subtotal', label: '(=) Lucro Líquido', value: lucroLiq, indent: 0, highlight: true },
+
+    // Informational only — transfers don't affect any totals
+    ...(transferSaida > 0 || transferEntrada > 0 ? [
+      { type: 'transfer' as const, label: 'Transferências entre Contas', sublabel: 'informativo — não contabiliza no resultado', value: 0, indent: 0, highlight: false },
+      ...(transferSaida > 0 ? [{ type: 'transfer' as const, label: 'Saídas de Transferência', value: -transferSaida, indent: 1, highlight: false }] : []),
+      ...(transferEntrada > 0 ? [{ type: 'transfer' as const, label: 'Entradas de Transferência', value: transferEntrada, indent: 1, highlight: false }] : []),
+    ] : []),
   ]
 
   return {

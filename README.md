@@ -1,137 +1,210 @@
-# 📊 Financeiro MPF — Sistema de Gestão Financeira
+# Prism DRE System — Documentação Técnica
 
-Sistema web para gestão financeira empresarial com:
-- **Plano de Contas** configurável
-- **Importação de extratos OFX**
-- **DRE automática** mês a mês
-- **Dashboard** com gráficos e indicadores
-- **Banco de dados** SQLite (arquivo local, zero configuração)
+Sistema financeiro da **Brave Educação** para importação de extratos OFX, classificação de lançamentos e geração de DRE por unidade/mês. Desenvolvido em Next.js 14 + Prisma + PostgreSQL (Neon), hospedado na Vercel com deploy automático via GitHub.
 
 ---
 
-## 🚀 Subir localmente (primeira vez)
+## Stack
 
-### 1. Pré-requisitos
-- Node.js 18+ instalado → https://nodejs.org
+- **Next.js 14** (App Router, full-stack — páginas e APIs no mesmo projeto)
+- **Prisma ORM** + **PostgreSQL** (Neon free tier, `sa-east-1`)
+- **Recharts** para gráficos
+- **TypeScript** strict
+- **Vercel** para deploy (build: `prisma generate && prisma db push && next build`)
 
-### 2. Instalar e configurar
-
-```bash
-# Entre na pasta do projeto
-cd financeiro
-
-# Instale as dependências
-npm install
-
-# Crie o banco de dados
-npm run setup
+### Variáveis de ambiente (Vercel)
+```
+DATABASE_URL=   # Neon connection pooling URL
+DIRECT_URL=     # Neon direct URL (para migrations)
+ANTHROPIC_API_KEY=  # Claude API (assistente IA na página AI)
 ```
 
-### 3. Rodar o sistema
-
-```bash
-npm run dev
-```
-
-Acesse: **http://localhost:3000**
-
 ---
 
-## ☁️ Deploy no Railway (recomendado — gratuito)
-
-1. Crie conta em https://railway.app
-2. Novo projeto → "Deploy from GitHub"
-3. Suba o código no GitHub (ou arraste a pasta)
-4. Adicione variável de ambiente:
-   ```
-   DATABASE_URL=file:./prisma/prod.db
-   ```
-5. O Railway detecta Next.js automaticamente e sobe o sistema
-
----
-
-## ☁️ Deploy na Vercel
-
-1. Crie conta em https://vercel.com
-2. Importe o repositório do GitHub
-3. Adicione `DATABASE_URL=file:./prisma/prod.db` em Environment Variables
-4. Deploy automático
-
-> ⚠️ Na Vercel o sistema de arquivos é efêmero. Para produção com muitos dados, migre para PostgreSQL (substituir `provider = "sqlite"` por `"postgresql"` no schema.prisma e atualizar DATABASE_URL).
-
----
-
-## 📋 Como usar
-
-### Passo 1 — Plano de Contas
-- Acesse **Plano de Contas**
-- Clique em **"Carregar Padrão"** para criar contas pré-definidas, ou
-- Adicione manualmente: código (ex: 3.1.1), nome, tipo e grupo DRE
-
-### Passo 2 — Importar OFX
-- Acesse **Lançamentos**
-- Arraste ou clique para selecionar o arquivo `.OFX` do seu banco
-- As transações são importadas automaticamente (duplicatas ignoradas)
-
-### Passo 3 — Classificar Transações
-- Para cada transação importada, selecione a **Conta do Plano**
-- Transações sem conta não entram no DRE
-- Use o filtro "Sem classificação" para ver o que falta
-
-### Passo 4 — Visualizar DRE e Dashboard
-- Acesse **DRE** para ver o resultado detalhado do mês
-- Acesse **Dashboard** para visão geral com gráficos
-
----
-
-## 🗂️ Estrutura do projeto
+## Estrutura de arquivos
 
 ```
 financeiro/
 ├── prisma/
-│   └── schema.prisma       # Modelo do banco de dados
+│   └── schema.prisma          # Modelos do banco
 ├── src/
 │   ├── app/
-│   │   ├── api/            # APIs (accounts, transactions, ofx, dre)
-│   │   ├── dashboard/      # Página do dashboard
-│   │   ├── plano-de-contas/# Configuração do plano
-│   │   ├── lancamentos/    # Importação OFX + classificação
-│   │   └── dre/            # DRE detalhada
+│   │   ├── layout.tsx         # Title: "Prism DRE System", favicon losango amarelo
+│   │   ├── page.tsx           # Redirect para /dashboard
+│   │   ├── dashboard/         # Visão geral com métricas e gráfico DRE
+│   │   ├── dre/               # DRE detalhada por mês/unidade
+│   │   ├── lancamentos/       # Importação OFX + classificação (página principal)
+│   │   ├── plano-de-contas/   # CRUD do plano de contas
+│   │   ├── saldo/             # Evolução do saldo bancário
+│   │   ├── unidades/          # Cadastro de unidades e contas bancárias
+│   │   └── api/
+│   │       ├── accounts/      # CRUD contas do plano (GET, POST, PUT, DELETE)
+│   │       ├── classify/
+│   │       │   └── suggest/   # POST — sugestões do classificador inteligente
+│   │       ├── dre/           # GET — cálculo DRE agregado
+│   │       ├── ofx/
+│   │       │   ├── route.ts   # POST — salva lançamentos OFX em lote
+│   │       │   └── parse/     # POST — parseia arquivo OFX (preview)
+│   │       ├── saldo/         # GET — snapshots de saldo por conta bancária
+│   │       ├── transactions/  # GET lista, PUT classifica, DELETE remove
+│   │       └── units/         # GET unidades com bankAccounts aninhados
 │   ├── components/
-│   │   └── Shell.tsx       # Layout (topbar + sidebar)
+│   │   ├── Shell.tsx          # Layout (topbar "Prism" + sidebar com nav)
+│   │   ├── AccountCombobox.tsx# Combobox buscável para seleção de conta do plano
+│   │   └── AIAssistant.tsx    # Assistente IA (Claude API)
 │   └── lib/
-│       ├── prisma.ts       # Cliente do banco
-│       ├── ofx-parser.ts   # Parser de arquivos OFX
-│       └── dre.ts          # Cálculo do DRE
-├── .env                    # Configuração do banco
-└── package.json
+│       ├── prisma.ts          # PrismaClient singleton + seed de unidades/bancos/conta neutra
+│       ├── ofx-parser.ts      # Parser OFX (transações, saldo, banco)
+│       ├── dre.ts             # Cálculo do DRE (calcDRE, MONTH_NAMES)
+│       └── classifier.ts      # tokenize() + jaccardSimilarity() para sugestões
+└── src/app/icon.svg           # Favicon: losango amarelo (#eaca2d)
 ```
 
 ---
 
-## 🔧 Banco de dados
+## Banco de dados (schema.prisma)
 
-O sistema usa **SQLite** por padrão — o banco fica em `prisma/dev.db`.
+### Modelos
 
-Para ver os dados visualmente:
-```bash
-npm run db:studio
+**Unit** — Unidades do negócio (MATRIZ, CICERO, CIPO, NOVA SOURE, FERNANDA)
+- `id`, `name` (unique)
+- Relações: `bankAccounts[]`, `transactions[]`
+
+**BankAccount** — Contas bancárias vinculadas a uma unidade
+- `id`, `name`, `unitId`, `initialBalance` (Float, default 0)
+- `ofxBankId String?` — identificador OFX (BANKID ou ORG do `<FI>`)
+- `ofxAcctId String?` — número da conta OFX (ACCTID)
+- Usado para auto-identificar o banco ao importar OFX
+
+**Account** — Plano de contas
+- `id`, `code` (unique, ex: "3.1.1"), `name`, `type`, `dreGroup`, `active`
+- Tipos: `RECEITA`, `DESPESA`, `ATIVO`, `PASSIVO`, `NEUTRO`
+- `dreGroup` controla onde aparece no DRE
+- Conta especial: `9.9.01 — Transferência entre Contas` (type=NEUTRO, excluída do DRE)
+
+**Transaction** — Lançamentos financeiros
+- `id`, `date`, `description`, `amount`, `memo?`, `fitid?` (unique — previne duplicatas OFX)
+- `accountId?` — conta do plano (null = não classificado, não entra no DRE)
+- `unitId?`, `bankAccountId?`
+- `month`, `year` — índices para filtro
+
+**BalanceSnapshot** — Saldos capturados via OFX
+- `id`, `bankAccountId`, `date`, `balance`
+- `@@unique([bankAccountId, date])` — um snapshot por conta por dia
+- Populado por: linhas `isBalance` do OFX + bloco `<LEDGERBAL>`
+
+### Seed automático (prisma.ts)
+Ao iniciar, `seedUnits()` cria as 5 unidades e seus bancos se não existirem. `seedTransferAccount()` garante a conta 9.9.01.
+
+Unidades e bancos pré-configurados:
+```
+MATRIZ:      ITAU MATRIZ, BRADESCO MATRIZ, BNB MATRIZ, BB MATRIZ
+CICERO:      ITAU CICERO, BRADESCO CICERO
+CIPO:        ITAU CIPO, BRADESCO CIPO
+NOVA SOURE:  ITAU NOVA SOURE, CAIXA NOVA SOURE
+FERNANDA:    ITAU FERNANDA, BRADESCO FERNANDA, BNB FERNANDA
 ```
 
-### Migrar para PostgreSQL (produção)
-1. No `prisma/schema.prisma`, mude `provider = "sqlite"` para `"postgresql"`
-2. Atualize `DATABASE_URL` para a string de conexão do PostgreSQL
-3. Rode `npx prisma migrate dev`
+---
+
+## Funcionalidades principais
+
+### Importação OFX (`/lancamentos`)
+
+**Fluxo:**
+1. Usuário arrasta/seleciona arquivo `.OFX`
+2. `POST /api/ofx/parse` parseia o arquivo:
+   - Extrai `<FI><ORG>` e `<BANKACCTFROM>` para identificar o banco
+   - Tenta casar com um `BankAccount` existente (por `ofxBankId+ofxAcctId` ou `org+acctId`)
+   - Extrai `<LEDGERBAL>` (saldo final)
+   - Extrai todas as `<STMTTRN>` — marca `isBalance=true` se `TRNTYPE=BALANCE` ou memo começa com "SALDO"
+3. Preview é exibido — linhas `isBalance` aparecem travadas (sem combobox)
+4. Classificador inteligente roda em background (`POST /api/classify/suggest`) e abre painel flutuante com sugestões
+5. Analista revisa, aceita/nega por linha ou em lote, pode arrastar o painel pela tela
+6. `POST /api/ofx` salva em lote:
+   - `createMany({ skipDuplicates: true })` — uma query para todas as transações
+   - Salva linhas `isBalance` como `BalanceSnapshot` diários
+   - Salva `LEDGERBAL` como `BalanceSnapshot`
+   - Atualiza `ofxBankId/ofxAcctId` na conta bancária (primeira vez)
+
+**Parser OFX (`ofx-parser.ts`):**
+- Extrai `<ORG>` do bloco `<FI>` (aparece sem tag de fechamento em alguns bancos)
+- Data OFX no formato `YYYYMMDD[HHMMSS[+offset]]`
+- `isBalance`: `TRNTYPE=BALANCE` ou memo começa com `/^saldo\b/i`
+
+### Classificador Inteligente (`/api/classify/suggest`)
+
+Algoritmo baseado em similaridade Jaccard sem dependências externas:
+
+```
+tokenize(memo): lowercase → remove números → remove não-letras → split → filtra tokens > 2 chars
+jaccardSimilarity(A, B): |A∩B| / |A∪B|
+```
+
+**Fluxo:**
+1. Carrega até 10.000 transações classificadas do histórico (excluindo Transferência entre Contas)
+2. Deduplica: por memo único, mantém a conta mais frequente
+3. Para cada memo novo, calcula similaridade com todas as referências
+4. Retorna sugestões com score ≥ 0.35, com `confidence` (0-100%)
+
+**Propagação em tempo real:** quando analista classifica uma linha manualmente, aplica a mesma conta nas linhas com similaridade ≥ 0.25 ainda não classificadas.
+
+**Painel flutuante:** aparece centralizado, arrastável pelo header, minimizável. Botões ✓/✕ por linha. "Aceitar todas" / "Negar todas".
+
+### Classificação de conta (`AccountCombobox.tsx`)
+
+Combobox buscável por nome ou código. Contas `NEUTRO` aparecem no topo com separador visual. Botão ✕ para limpar.
+
+### Saldo Bancário (`/saldo`)
+
+Exibe evolução do saldo usando apenas os `BalanceSnapshot` registrados. Gráfico de linha com Recharts. Um ponto por importação OFX (cada linha isBalance + LEDGERBAL = pontos diários).
+
+### DRE (`/dre`)
+
+Cálculo em `lib/dre.ts`. Agrupa transações por `dreGroup` da conta do plano. `dreGroup = 'Transferência entre Contas'` é ignorado explicitamente. Filtra por mês/ano/unidade.
 
 ---
 
-## 📦 Tecnologias
+## Decisões técnicas importantes
 
-- **Next.js 14** — Framework React full-stack
-- **Prisma + SQLite** — Banco de dados
-- **Recharts** — Gráficos
-- **TypeScript** — Tipagem
+**TypeScript no Vercel:** o compilador alvo não suporta `for...of` em `Map`/`Set` nem spread `[...set]`. Sempre usar `Array.from()`:
+```typescript
+// ❌ falha no build
+for (const [k, v] of map) { ... }
+const arr = [...set]
+
+// ✅ correto
+Array.from(map.entries()).forEach(([k, v]) => { ... })
+const arr = Array.from(set)
+```
+
+**Neon PostgreSQL:** banco em `sa-east-1` (São Paulo). Free tier: 0.5 GB storage, 5h compute/mês. Com ~530 transações/mês × 12 contas ≈ 6.360 tx/mês ≈ 12.7 MB/mês → ~3 anos de capacidade.
+
+**Performance de import:** usar `createMany` em vez de loop `await create` individual — reduz 530 round-trips para 1 query SQL.
+
+**Conta neutra:** `9.9.01 — Transferência entre Contas` (type=NEUTRO) não entra no DRE (excluída em `calcDRE` + no `classify/suggest`). Aparece no topo do combobox destacada.
 
 ---
 
-*Desenvolvido com identidade visual Brave Educação Empresarial*
+## Deploy
+
+Repositório: `github.com/Sav-Coelho/prism-financeiro` (branch `main`)
+Vercel auto-deploya a cada push.
+
+Build script (`package.json`):
+```
+prisma generate && prisma db push && next build
+```
+
+`prisma db push` sincroniza o schema sem migrations versionadas.
+
+---
+
+## Identidade visual
+
+- Fonte principal do brand: **Bricolage Grotesque** (`--font-sub`)
+- Cor amarela: `#eaca2d` (`--brave-yellow`)
+- Cor escura: `var(--brave-dark)`
+- CSS global em `src/app/globals.css`
+- Sem bibliotecas de UI — estilos inline + classes CSS próprias (`.card`, `.btn`, `.metric-card`, `.form-select`, `.badge-neutro`, etc.)
+- Favicon: `src/app/icon.svg` — losango amarelo simples

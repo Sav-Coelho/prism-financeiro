@@ -15,14 +15,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Nenhuma transação encontrada no arquivo OFX' }, { status: 422 })
   }
 
-  const fitids = parsed.map(tx => tx.fitid).filter(Boolean) as string[]
-  const existing = await prisma.transaction.findMany({
-    where: { fitid: { in: fitids } },
-    select: { fitid: true }
-  })
-  const existingSet = new Set(existing.map(e => e.fitid))
-
-  // Try to find matching bank account — by bankId, then by org (fallback)
+  // Detect bank account first so fitid check can be scoped to the same account
   let matchedBankAccount: { id: number; name: string; unitId: number; unitName: string } | null = null
   const acctId = bankInfo.acctId
   if (acctId) {
@@ -43,6 +36,17 @@ export async function POST(req: NextRequest) {
       }
     }
   }
+
+  // Scope duplicate check to the matched bank account to avoid false positives across different banks
+  const fitids = parsed.map(tx => tx.fitid).filter(Boolean) as string[]
+  const existing = await prisma.transaction.findMany({
+    where: {
+      fitid: { in: fitids },
+      ...(matchedBankAccount ? { bankAccountId: matchedBankAccount.id } : {}),
+    },
+    select: { fitid: true }
+  })
+  const existingSet = new Set(existing.map(e => e.fitid))
 
   const transactions = parsed.map(tx => ({
     fitid: tx.fitid,

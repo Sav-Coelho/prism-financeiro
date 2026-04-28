@@ -61,6 +61,7 @@ export default function Lancamentos() {
   const [previewTxs, setPreviewTxs] = useState<PreviewTx[] | null>(null)
   const [selectedFitids, setSelectedFitids] = useState<Set<string>>(new Set())
   const [previewAccountMap, setPreviewAccountMap] = useState<Record<string, string>>({})
+  const [previewTransferDestMap, setPreviewTransferDestMap] = useState<Record<string, { unitId: string; bankAccountId: string }>>({})
   const [previewUnitId, setPreviewUnitId] = useState<string>('')
   const [previewBankAccountId, setPreviewBankAccountId] = useState<string>('')
   const [detectedBankInfo, setDetectedBankInfo] = useState<BankInfo | null>(null)
@@ -75,6 +76,9 @@ export default function Lancamentos() {
   const panelDragOffset = useRef({ x: 0, y: 0 })
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 4000) }
+
+  const isTransferAccount = (accId: string) =>
+    !!accounts.find((a: any) => String(a.id) === accId && a.dreGroup === 'Transferência entre Contas')
 
   const load = () => {
     setLoading(true)
@@ -106,6 +110,7 @@ export default function Lancamentos() {
         txList.filter((t: PreviewTx) => !t.alreadyImported && !t.isBalance).map((t: PreviewTx) => t.fitid)
       ))
       setPreviewAccountMap({})
+      setPreviewTransferDestMap({})
       setSuggestedFitids(new Set())
       setDetectedBankInfo(data.bankInfo ?? null)
       setMatchedBankAccount(data.matchedBankAccount ?? null)
@@ -148,6 +153,12 @@ export default function Lancamentos() {
   const handlePreviewAccountChange = (fitid: string, accountId: string) => {
     setSuggestedFitids(prev => { const n = new Set(prev); n.delete(fitid); return n })
     setPreviewAccountMap(prev => ({ ...prev, [fitid]: accountId }))
+
+    if (!isTransferAccount(accountId)) {
+      setPreviewTransferDestMap(prev => { const n = { ...prev }; delete n[fitid]; return n })
+    }
+
+    if (isTransferAccount(accountId) || !accountId || !previewTxs) return
 
     if (accountId && previewTxs) {
       const thisTx = previewTxs.find(t => t.fitid === fitid)
@@ -248,7 +259,13 @@ export default function Lancamentos() {
     if (!previewUnitId) { showToast('Selecione a unidade antes de salvar'); return }
     const toSave = previewTxs
       .filter(t => selectedFitids.has(t.fitid))
-      .map(t => ({ ...t, accountId: previewAccountMap[t.fitid] || null, unitId: previewUnitId }))
+      .map(t => ({
+        ...t,
+        accountId: previewAccountMap[t.fitid] || null,
+        unitId: previewUnitId,
+        transferToUnitId: previewTransferDestMap[t.fitid]?.unitId || null,
+        transferToBankAccountId: previewTransferDestMap[t.fitid]?.bankAccountId || null,
+      }))
 
     if (toSave.length === 0) { showToast('Selecione ao menos uma transação'); return }
 
@@ -273,6 +290,7 @@ export default function Lancamentos() {
       const saldoMsg = ledgerBalance ? ` · Saldo ${fmt(ledgerBalance.amount)} salvo` : ''
       showToast(`✓ ${data.imported} importadas${data.skipped ? `, ${data.skipped} ignoradas` : ''}${saldoMsg}`)
       setPreviewTxs(null); setSelectedFitids(new Set()); setPreviewAccountMap({})
+      setPreviewTransferDestMap({})
       setSuggestedFitids(new Set())
       setMatchedBankAccount(null); setDetectedBankInfo(null); setLedgerBalance(null)
       load()
@@ -449,7 +467,7 @@ export default function Lancamentos() {
               <button className="btn btn-primary" onClick={saveSelected} disabled={saving || selectedFitids.size === 0 || !previewUnitId}>
                 {saving ? 'Salvando...' : `Salvar (${selectedFitids.size})`}
               </button>
-              <button className="btn btn-danger btn-sm" onClick={() => { setPreviewTxs(null); setSelectedFitids(new Set()); setPreviewAccountMap({}); setSuggestedFitids(new Set()); setMatchedBankAccount(null); setDetectedBankInfo(null); setLedgerBalance(null) }}>
+              <button className="btn btn-danger btn-sm" onClick={() => { setPreviewTxs(null); setSelectedFitids(new Set()); setPreviewAccountMap({}); setPreviewTransferDestMap({}); setSuggestedFitids(new Set()); setMatchedBankAccount(null); setDetectedBankInfo(null); setLedgerBalance(null) }}>
                 Cancelar
               </button>
             </div>
@@ -490,6 +508,38 @@ export default function Lancamentos() {
                             value={previewAccountMap[tx.fitid] || ''}
                             onChange={val => handlePreviewAccountChange(tx.fitid, val)}
                           />
+                          {isTransferAccount(previewAccountMap[tx.fitid]) && (
+                            <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <select
+                                className="form-select"
+                                style={{ fontSize: 11 }}
+                                value={previewTransferDestMap[tx.fitid]?.unitId || ''}
+                                onChange={e => setPreviewTransferDestMap(prev => ({
+                                  ...prev,
+                                  [tx.fitid]: { unitId: e.target.value, bankAccountId: '' }
+                                }))}
+                              >
+                                <option value="">— Unidade destino —</option>
+                                {units.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                              </select>
+                              {previewTransferDestMap[tx.fitid]?.unitId && (
+                                <select
+                                  className="form-select"
+                                  style={{ fontSize: 11 }}
+                                  value={previewTransferDestMap[tx.fitid]?.bankAccountId || ''}
+                                  onChange={e => setPreviewTransferDestMap(prev => ({
+                                    ...prev,
+                                    [tx.fitid]: { ...prev[tx.fitid], bankAccountId: e.target.value }
+                                  }))}
+                                >
+                                  <option value="">— Conta destino —</option>
+                                  {(units.find((u: any) => String(u.id) === previewTransferDestMap[tx.fitid]?.unitId)?.bankAccounts ?? []).map((b: any) => (
+                                    <option key={b.id} value={b.id}>{b.name}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                          )}
                           {suggestedFitids.has(tx.fitid) && previewAccountMap[tx.fitid] && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
                               <span style={{ fontSize: 10, color: '#7a5c00', background: '#fff8e1', borderRadius: 4, padding: '1px 5px' }}>

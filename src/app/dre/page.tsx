@@ -28,6 +28,12 @@ function lineStyle(type: DRELineType, indent: number, value: number) {
   if (type === 'breakeven') {
     return { ...base, padding: '5px 14px', paddingLeft: pad, background: 'rgba(234,202,45,0.07)', borderRadius: 6 }
   }
+  if (type === 'transfer' && indent === 0) {
+    return { ...base, padding: '8px 14px', paddingLeft: pad, marginTop: 14, borderTop: '2px dashed rgba(43,45,66,0.14)' }
+  }
+  if (type === 'transfer') {
+    return { ...base, padding: '5px 14px', paddingLeft: pad }
+  }
   if (type === 'group') {
     return { ...base, padding: indent === 0 ? '8px 14px' : '6px 14px', paddingLeft: pad }
   }
@@ -38,6 +44,8 @@ function labelStyle(type: DRELineType, indent: number) {
   if (type === 'subtotal') return { fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-sub)' }
   if (type === 'section') return { fontSize: 12, fontWeight: 700, color: 'var(--brave-gray)', fontFamily: 'var(--font-sub)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }
   if (type === 'breakeven') return { fontSize: 11, fontWeight: 500, color: '#856404' }
+  if (type === 'transfer' && indent === 0) return { fontSize: 12, fontWeight: 700, color: '#546e7a', fontFamily: 'var(--font-sub)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }
+  if (type === 'transfer') return { fontSize: 12, fontWeight: 500, color: '#78909c' }
   if (type === 'group' && indent === 0) return { fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-sub)' }
   if (type === 'group') return { fontSize: 12, fontWeight: 600 }
   return { fontSize: 12, color: 'var(--brave-gray)' }
@@ -51,6 +59,7 @@ function valueStyle(type: DRELineType, value: number) {
   if (type === 'subtotal') return { ...base, fontSize: 14, fontWeight: 700 }
   if (type === 'section') return { ...base, fontSize: 12, fontWeight: 600, color: 'var(--brave-gray)' }
   if (type === 'breakeven') return { ...base, fontSize: 11, color: '#856404' }
+  if (type === 'transfer') return { ...base, fontSize: 12, color: '#78909c', whiteSpace: 'nowrap' as const }
   if (type === 'group') return { ...base, fontSize: 13, fontWeight: 600 }
   return { ...base, fontSize: 12 }
 }
