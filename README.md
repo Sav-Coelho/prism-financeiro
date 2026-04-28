@@ -80,12 +80,13 @@ financeiro/
 - `id`, `code` (unique, ex: "3.1.1"), `name`, `type`, `dreGroup`, `active`
 - Tipos: `RECEITA`, `DESPESA`, `ATIVO`, `PASSIVO`, `NEUTRO`
 - `dreGroup` controla onde aparece no DRE
-- Conta especial: `9.9.01 — Transferência entre Contas` (type=NEUTRO, excluída do DRE)
+- Conta especial: `9.9.01 — Transferência entre Contas` (type=NEUTRO) — ao classificar, exibe seletores de unidade/conta destino e cria contrapartida automaticamente; aparece na DRE como seção informativa sem contabilizar
 
 **Transaction** — Lançamentos financeiros
 - `id`, `date`, `description`, `amount`, `memo?`, `fitid?` (unique — previne duplicatas OFX)
 - `accountId?` — conta do plano (null = não classificado, não entra no DRE)
 - `unitId?`, `bankAccountId?`
+- `transferToUnitId?`, `transferToBankAccountId?` — preenchidos quando é saída de transferência; a contrapartida de entrada é criada automaticamente com `fitid + '_entrada'`
 - `month`, `year` — índices para filtro
 
 **BalanceSnapshot** — Saldos capturados via OFX
@@ -114,8 +115,8 @@ FERNANDA:    ITAU FERNANDA, BRADESCO FERNANDA, BNB FERNANDA
 **Fluxo:**
 1. Usuário arrasta/seleciona arquivo `.OFX`
 2. `POST /api/ofx/parse` parseia o arquivo:
+   - **Detecta a conta bancária primeiro**, depois verifica duplicatas de `fitid` escopadas à mesma conta — evita falsos positivos entre bancos diferentes
    - Extrai `<FI><ORG>` e `<BANKACCTFROM>` para identificar o banco
-   - Tenta casar com um `BankAccount` existente (por `ofxBankId+ofxAcctId` ou `org+acctId`)
    - Extrai `<LEDGERBAL>` (saldo final)
    - Extrai todas as `<STMTTRN>` — marca `isBalance=true` se `TRNTYPE=BALANCE` ou memo começa com "SALDO"
 3. Preview é exibido — linhas `isBalance` aparecem travadas (sem combobox)
@@ -161,7 +162,7 @@ Exibe evolução do saldo usando apenas os `BalanceSnapshot` registrados. Gráfi
 
 ### DRE (`/dre`)
 
-Cálculo em `lib/dre.ts`. Agrupa transações por `dreGroup` da conta do plano. `dreGroup = 'Transferência entre Contas'` é ignorado explicitamente. Filtra por mês/ano/unidade.
+Cálculo em `lib/dre.ts`. Agrupa transações por `dreGroup` da conta do plano. Filtra por mês/ano/unidade. Transferências entre contas aparecem ao final numa **seção informativa** (tipo `'transfer'`) que não contabiliza nos totais financeiros.
 
 ---
 
