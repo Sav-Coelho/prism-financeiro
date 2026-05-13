@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { date, description, amount, accountId, memo, unitId } = body
+  const { date, description, amount, accountId, memo, unitId, bankAccountId } = body
 
   const d = new Date(date)
   const tx = await prisma.transaction.create({
@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
       memo,
       accountId: accountId ? parseInt(accountId) : null,
       unitId: unitId ? parseInt(unitId) : null,
+      bankAccountId: bankAccountId ? parseInt(bankAccountId) : null,
       month: d.getMonth() + 1,
       year: d.getFullYear()
     },

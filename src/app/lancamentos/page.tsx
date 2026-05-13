@@ -12,6 +12,20 @@ const fmt = (v: number) =>
 
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('pt-BR')
 
+type Tab = 'ofx' | 'manual'
+
+const TAB_STYLE = (active: boolean): React.CSSProperties => ({
+  padding: '8px 18px',
+  background: 'none',
+  border: 'none',
+  borderBottom: active ? '2px solid var(--brave-yellow)' : '2px solid transparent',
+  fontFamily: 'var(--font-sub)',
+  fontWeight: active ? 700 : 400,
+  fontSize: 13,
+  color: active ? 'var(--brave-dark)' : 'var(--brave-gray)',
+  cursor: 'pointer',
+})
+
 const now = new Date()
 
 interface PreviewTx {
@@ -55,6 +69,16 @@ export default function Lancamentos() {
   const [filter, setFilter] = useState<'all' | 'sem-conta' | 'classificado'>('all')
   const [selectedTxIds, setSelectedTxIds] = useState<Set<number>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const [tab, setTab] = useState<Tab>('ofx')
+  const [manualDate, setManualDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [manualDesc, setManualDesc] = useState('')
+  const [manualAmount, setManualAmount] = useState('')
+  const [manualIsExpense, setManualIsExpense] = useState(true)
+  const [manualUnitId, setManualUnitId] = useState('')
+  const [manualBankAccountId, setManualBankAccountId] = useState('')
+  const [manualAccountId, setManualAccountId] = useState('')
+  const [manualSaving, setManualSaving] = useState(false)
 
   const [parsing, setParsing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -347,6 +371,42 @@ export default function Lancamentos() {
   const selectableCount = previewTxs?.filter(t => !t.alreadyImported && !t.isBalance).length ?? 0
 
   const bankAccountsForUnit = units.find(u => String(u.id) === previewUnitId)?.bankAccounts ?? []
+  const manualBankAccounts = units.find((u: any) => String(u.id) === manualUnitId)?.bankAccounts ?? []
+
+  const saveManual = async () => {
+    if (!manualDate || !manualDesc.trim() || !manualAmount || !manualUnitId) {
+      showToast('Preencha data, descrição, valor e unidade')
+      return
+    }
+    const rawAmt = parseFloat(manualAmount.replace(',', '.'))
+    if (isNaN(rawAmt) || rawAmt === 0) { showToast('Valor inválido'); return }
+    const amount = manualIsExpense ? -Math.abs(rawAmt) : Math.abs(rawAmt)
+    setManualSaving(true)
+    const res = await fetch('/api/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        date: manualDate,
+        description: manualDesc.trim(),
+        memo: manualDesc.trim(),
+        amount,
+        accountId: manualAccountId || null,
+        unitId: manualUnitId,
+        bankAccountId: manualBankAccountId || null,
+      })
+    })
+    if (res.ok) {
+      showToast('✓ Lançamento salvo')
+      setManualDesc('')
+      setManualAmount('')
+      setManualAccountId('')
+      load()
+    } else {
+      const data = await res.json()
+      showToast(`Erro: ${data.error || 'desconhecido'}`)
+    }
+    setManualSaving(false)
+  }
 
   return (
     <Shell>
@@ -372,6 +432,13 @@ export default function Lancamentos() {
       </div>
 
       {!previewTxs && (
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--brave-light)', marginBottom: 20 }}>
+          <button style={TAB_STYLE(tab === 'ofx')} onClick={() => setTab('ofx')}>📂 Extrato OFX</button>
+          <button style={TAB_STYLE(tab === 'manual')} onClick={() => setTab('manual')}>✏️ Lançamento Manual</button>
+        </div>
+      )}
+
+      {tab === 'ofx' && !previewTxs && (
         <div
           className={`upload-zone mb-6 ${drag ? 'drag' : ''}`}
           onDragOver={e => { e.preventDefault(); setDrag(true) }}
@@ -383,6 +450,105 @@ export default function Lancamentos() {
           <div className="upload-icon">{parsing ? '⏳' : '📂'}</div>
           <div className="upload-title">{parsing ? 'Lendo extrato...' : 'Importar Extrato OFX'}</div>
           <div className="upload-sub">Clique ou arraste o arquivo .OFX — você verá uma prévia antes de salvar</div>
+        </div>
+      )}
+
+      {tab === 'manual' && !previewTxs && (
+        <div className="card mb-6" style={{ padding: '24px 28px', maxWidth: 680 }}>
+          <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 15, marginBottom: 18 }}>Novo Lançamento</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--brave-gray)', display: 'block', marginBottom: 4 }}>Data</label>
+              <input
+                type="date"
+                className="form-input"
+                style={{ width: '100%' }}
+                value={manualDate}
+                onChange={e => setManualDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--brave-gray)', display: 'block', marginBottom: 4 }}>Unidade</label>
+              <select
+                className="form-select"
+                style={{ width: '100%' }}
+                value={manualUnitId}
+                onChange={e => { setManualUnitId(e.target.value); setManualBankAccountId('') }}
+              >
+                <option value="">— Selecione —</option>
+                {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--brave-gray)', display: 'block', marginBottom: 4 }}>Descrição</label>
+            <input
+              type="text"
+              className="form-input"
+              style={{ width: '100%' }}
+              placeholder="Ex: Tarifa bancária — Jan/2025"
+              value={manualDesc}
+              onChange={e => setManualDesc(e.target.value)}
+            />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--brave-gray)', display: 'block', marginBottom: 4 }}>Valor</label>
+              <input
+                type="text"
+                className="form-input"
+                style={{ width: '100%' }}
+                placeholder="0,00"
+                value={manualAmount}
+                onChange={e => setManualAmount(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--brave-gray)', display: 'block', marginBottom: 4 }}>Tipo</label>
+              <div style={{ display: 'flex', gap: 16, paddingTop: 6 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                  <input type="radio" name="manualType" checked={manualIsExpense} onChange={() => setManualIsExpense(true)} />
+                  <span style={{ color: '#c0392b', fontWeight: 600 }}>Despesa (−)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                  <input type="radio" name="manualType" checked={!manualIsExpense} onChange={() => setManualIsExpense(false)} />
+                  <span style={{ color: '#1a7a4a', fontWeight: 600 }}>Receita (+)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--brave-gray)', display: 'block', marginBottom: 4 }}>Conta Bancária</label>
+              <select
+                className="form-select"
+                style={{ width: '100%' }}
+                value={manualBankAccountId}
+                onChange={e => setManualBankAccountId(e.target.value)}
+                disabled={!manualUnitId}
+              >
+                <option value="">— Opcional —</option>
+                {manualBankAccounts.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--brave-gray)', display: 'block', marginBottom: 4 }}>Plano de Contas</label>
+              <AccountCombobox
+                accounts={accounts}
+                value={manualAccountId}
+                onChange={setManualAccountId}
+              />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => {
+              setManualDesc(''); setManualAmount(''); setManualAccountId('')
+              setManualUnitId(''); setManualBankAccountId(''); setManualIsExpense(true)
+            }}>Limpar</button>
+            <button className="btn btn-primary" onClick={saveManual} disabled={manualSaving}>
+              {manualSaving ? 'Salvando...' : 'Salvar Lançamento'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -614,7 +780,7 @@ export default function Lancamentos() {
           <div style={{ padding: 60, textAlign: 'center', color: 'var(--brave-gray)' }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
             Nenhum lançamento encontrado.<br />
-            <span style={{ fontSize: 12 }}>Importe um arquivo OFX acima.</span>
+            <span style={{ fontSize: 12 }}>Importe um OFX ou use a aba Lançamento Manual acima.</span>
           </div>
         ) : (
           <div className="table-wrap">
