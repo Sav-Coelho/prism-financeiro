@@ -37,16 +37,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Scope duplicate check to the matched bank account to avoid false positives across different banks
+  // Scope duplicate check strictly to the matched bank account.
+  // If no account was identified yet, all transactions are new (can't be duplicates for an unknown account).
   const fitids = parsed.map(tx => tx.fitid).filter(Boolean) as string[]
-  const existing = await prisma.transaction.findMany({
-    where: {
-      fitid: { in: fitids },
-      ...(matchedBankAccount ? { bankAccountId: matchedBankAccount.id } : {}),
-    },
-    select: { fitid: true }
-  })
-  const existingSet = new Set(existing.map(e => e.fitid))
+  const existingSet = new Set<string>()
+  if (matchedBankAccount && fitids.length > 0) {
+    const existing = await prisma.transaction.findMany({
+      where: { fitid: { in: fitids }, bankAccountId: matchedBankAccount.id },
+      select: { fitid: true }
+    })
+    existing.forEach(e => { if (e.fitid) existingSet.add(e.fitid) })
+  }
 
   const transactions = parsed.map(tx => ({
     fitid: tx.fitid,

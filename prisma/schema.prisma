@@ -45,7 +45,7 @@ model Transaction {
   description   String
   amount        Float
   memo          String?
-  fitid         String?      @unique
+  fitid         String?
   accountId     Int?
   account       Account?     @relation(fields: [accountId], references: [id])
   unitId        Int?
@@ -57,6 +57,8 @@ model Transaction {
   month                   Int
   year                    Int
   createdAt               DateTime     @default(now())
+
+  @@unique([fitid, bankAccountId])
 }
 
 model BalanceSnapshot {
