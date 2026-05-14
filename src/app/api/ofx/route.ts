@@ -48,9 +48,28 @@ export async function POST(req: NextRequest) {
     }
   })
 
-  const result = await prisma.transaction.createMany({ data, skipDuplicates: true })
+  // Pre-check: find fitids already in the DB for this specific bank account,
+  // so we never silently drop records. Transactions with the same fitid but a
+  // different (or null) bankAccountId are legitimately new and must be inserted.
+  const fitidsToCheck = data.map(d => d.fitid).filter(Boolean) as string[]
+  const alreadyInDb = new Set<string>()
+  if (fitidsToCheck.length > 0) {
+    const existing = await prisma.transaction.findMany({
+      where: {
+        fitid: { in: fitidsToCheck },
+        bankAccountId: bankAccId,
+      },
+      select: { fitid: true },
+    })
+    existing.forEach(e => { if (e.fitid) alreadyInDb.add(e.fitid) })
+  }
+
+  const toInsert = data.filter(d => !d.fitid || !alreadyInDb.has(d.fitid))
+  const alreadyImportedCount = data.length - toInsert.length
+
+  const result = await prisma.transaction.createMany({ data: toInsert, skipDuplicates: true })
   const imported = result.count
-  const skipped = transactions.length - imported
+  const skipped = alreadyImportedCount + (toInsert.length - imported)
 
   // Create counterpart entry transactions for transfers
   const transferTxs = transactions.filter(tx => tx.transferToBankAccountId && tx.accountId)

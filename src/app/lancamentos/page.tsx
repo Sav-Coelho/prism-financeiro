@@ -312,7 +312,7 @@ export default function Lancamentos() {
     const data = await res.json()
     if (res.ok) {
       const saldoMsg = ledgerBalance ? ` · Saldo ${fmt(ledgerBalance.amount)} salvo` : ''
-      showToast(`✓ ${data.imported} importadas${data.skipped ? `, ${data.skipped} ignoradas` : ''}${saldoMsg}`)
+      showToast(`✓ ${data.imported} importadas${data.skipped ? `, ${data.skipped} já existiam` : ''}${saldoMsg}`)
       setPreviewTxs(null); setSelectedFitids(new Set()); setPreviewAccountMap({})
       setPreviewTransferDestMap({})
       setSuggestedFitids(new Set())
