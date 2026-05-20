@@ -149,6 +149,34 @@ export default function DREPage() {
             ))}
           </div>
 
+          {/* Alerta de categorias órfãs — dreGroups não mapeados no DRE */}
+          {dre.orphaned?.length > 0 && (
+            <div className="card mb-6" style={{ background: '#fff8e1', border: '1px solid #f0c040', padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+                <div>
+                  <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 700, fontSize: 13, color: '#7a5c00', marginBottom: 6 }}>
+                    {dre.orphaned.length} grupo{dre.orphaned.length > 1 ? 's' : ''} de conta não reconhecido{dre.orphaned.length > 1 ? 's' : ''} no DRE
+                  </div>
+                  <div style={{ fontSize: 12, color: '#7a5c00', marginBottom: 8 }}>
+                    As transações abaixo estão classificadas em grupos que não existem na estrutura do DRE e
+                    <strong> não estão entrando em nenhuma linha</strong>. Corrija o Grupo DRE em Plano de Contas.
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {dre.orphaned.map((o: any) => (
+                      <div key={o.dreGroup} style={{ background: '#fffbea', border: '1px solid #f0c040', borderRadius: 6, padding: '4px 10px', fontSize: 12 }}>
+                        <span style={{ fontWeight: 600, color: '#5c4400' }}>{o.dreGroup}</span>
+                        <span style={{ color: '#856404', marginLeft: 8 }}>
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(o.total)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid-2 mb-6">
             {/* DRE Estruturado */}
             <div className="card" style={{ overflowY: 'auto', maxHeight: 680 }}>

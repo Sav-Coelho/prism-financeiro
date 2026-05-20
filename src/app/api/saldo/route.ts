@@ -26,13 +26,47 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Conta bancária não encontrada' }, { status: 404 })
   }
 
-  const currentBalance = snapshots.length > 0
-    ? snapshots[snapshots.length - 1].balance
+  // --- Fallback: se não há snapshots OFX, computa saldo acumulado a partir das transações ---
+  let snapshotsOut: { date: string; balance: number; isComputed?: boolean }[]
+  let isComputed = false
+
+  if (snapshots.length > 0) {
+    snapshotsOut = snapshots.map(s => ({ date: s.date.toISOString(), balance: s.balance }))
+  } else {
+    const txs = await prisma.transaction.findMany({
+      where: { bankAccountId },
+      select: { date: true, amount: true },
+      orderBy: { date: 'asc' },
+    })
+
+    if (txs.length > 0) {
+      isComputed = true
+      const byDate: Record<string, number> = {}
+      txs.forEach(tx => {
+        const key = tx.date.toISOString().split('T')[0]
+        byDate[key] = (byDate[key] || 0) + tx.amount
+      })
+
+      let balance = bankAccount.initialBalance
+      snapshotsOut = Array.from(Object.entries(byDate))
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, amount]) => {
+          balance += amount
+          return { date: `${date}T00:00:00.000Z`, balance, isComputed: true }
+        })
+    } else {
+      snapshotsOut = []
+    }
+  }
+
+  const currentBalance = snapshotsOut.length > 0
+    ? snapshotsOut[snapshotsOut.length - 1].balance
     : bankAccount.initialBalance
 
   return NextResponse.json({
     bankAccount: { id: bankAccount.id, name: bankAccount.name, unit: bankAccount.unit },
-    snapshots: snapshots.map(s => ({ date: s.date.toISOString(), balance: s.balance })),
+    snapshots: snapshotsOut,
     currentBalance,
+    isComputed,
   })
 }

@@ -54,6 +54,7 @@ export default function Saldo() {
 
   const currentBalance: number = data?.currentBalance ?? 0
   const snapshotCount: number = data?.snapshots?.length ?? 0
+  const isComputed: boolean = data?.isComputed ?? false
 
   const balances: number[] = chartData.map((d: any) => d.Saldo)
   const minBalance: number = balances.length ? Math.min(...balances) : 0
@@ -142,8 +143,15 @@ export default function Saldo() {
 
               {chartData.length > 0 && (
                 <div className="card mb-6">
-                  <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13, marginBottom: 16 }}>
-                    Evolução do Saldo — {data.bankAccount?.name} ({data.bankAccount?.unit?.name})
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                    <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13 }}>
+                      Evolução do Saldo — {data.bankAccount?.name} ({data.bankAccount?.unit?.name})
+                    </div>
+                    {isComputed && (
+                      <span style={{ fontSize: 11, background: '#fff8e1', color: '#7a5c00', borderRadius: 4, padding: '3px 8px', border: '1px solid #f0c040' }}>
+                        ⚠ Estimado a partir das transações — importe OFX com conta bancária selecionada para saldo real
+                      </span>
+                    )}
                   </div>
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart data={chartData}>
@@ -185,10 +193,12 @@ export default function Saldo() {
                 <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
                   <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--brave-light)' }}>
                     <span style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13 }}>
-                      Snapshots de Saldo — {snapshotCount} registros
+                      {isComputed ? 'Saldo Calculado' : 'Snapshots de Saldo'} — {snapshotCount} registros
                     </span>
                     <div style={{ fontSize: 12, color: 'var(--brave-gray)', marginTop: 2 }}>
-                      Saldos capturados automaticamente via LEDGERBAL nos extratos OFX importados
+                      {isComputed
+                        ? 'Saldo acumulado calculado a partir das transações (sem snapshot OFX disponível)'
+                        : 'Saldos capturados automaticamente via LEDGERBAL nos extratos OFX importados'}
                     </div>
                   </div>
                   <div className="table-wrap">

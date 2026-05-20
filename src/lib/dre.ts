@@ -9,6 +9,11 @@ export interface DRELine {
   highlight: boolean
 }
 
+export interface DREOrphan {
+  dreGroup: string
+  total: number
+}
+
 export interface DREData {
   month: number
   year: number
@@ -21,7 +26,25 @@ export interface DREData {
   lucroAposInvestimentos: number
   lucroAntesImpostos: number
   resultadoLiquido: number
+  orphaned: DREOrphan[]         // dreGroups não reconhecidos pela estrutura do DRE
 }
+
+// Todos os dreGroups reconhecidos pelo calcDRE. Qualquer outro valor ficará "órfão".
+export const KNOWN_DRE_GROUPS = new Set([
+  'Receita Operacional',
+  'Deduções sobre a Venda',
+  'Custo do Produto/Serviço',
+  'Despesa Variável',
+  'Despesas Administrativas',
+  'Despesas Financeiras',
+  'Despesas com Pessoal',
+  'Despesas com Marketing',
+  'Investimentos',
+  'Receita Não Operacional',
+  'Despesas Não Operacionais',
+  'Impostos',
+  'Transferência entre Contas',
+])
 
 interface AccEntry { name: string; code: string; value: number }
 
@@ -171,6 +194,12 @@ export function calcDRE(
     ] : []),
   ]
 
+  // Detecta dreGroups presentes nas transações que não são mapeados pela estrutura do DRE
+  const orphaned: DREOrphan[] = Array.from(Object.entries(byGroup))
+    .filter(([group]) => !KNOWN_DRE_GROUPS.has(group))
+    .map(([dreGroup, total]) => ({ dreGroup, total }))
+    .sort((a, b) => b.total - a.total)
+
   return {
     month, year, lines,
     receitaBruta: receitaOp,
@@ -181,6 +210,7 @@ export function calcDRE(
     lucroAposInvestimentos: lucroAposInv,
     lucroAntesImpostos: lucroAntesIR,
     resultadoLiquido: lucroLiq,
+    orphaned,
   }
 }
 
