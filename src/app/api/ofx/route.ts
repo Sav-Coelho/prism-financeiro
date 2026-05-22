@@ -144,7 +144,21 @@ export async function POST(req: NextRequest) {
       })()
     : Promise.resolve()
 
-  await Promise.all([...snapshotOps, linkOp])
+  // Repair: garante que todas as transações desta conta tenham unitId correto.
+  // Corrige transações importadas antes desta correção que ficaram com unitId=null.
+  const repairOp = bankAccId
+    ? prisma.bankAccount.findUnique({ where: { id: bankAccId }, select: { unitId: true } })
+        .then(acc => {
+          if (acc?.unitId) {
+            return prisma.transaction.updateMany({
+              where: { bankAccountId: bankAccId, unitId: null },
+              data: { unitId: acc.unitId },
+            })
+          }
+        }).catch(() => {})
+    : Promise.resolve()
+
+  await Promise.all([...snapshotOps, linkOp, repairOp])
 
   return NextResponse.json({ imported, skipped })
 }

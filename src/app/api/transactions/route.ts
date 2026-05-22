@@ -11,8 +11,13 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = {}
   if (month) where.month = parseInt(month)
   if (year) where.year = parseInt(year)
-  if (unitId) where.unitId = parseInt(unitId)
-  if (bankAccountId) where.bankAccountId = parseInt(bankAccountId)
+  // bankAccountId já implica a unidade — não adiciona unitId para não excluir
+  // transações importadas sem unitId mas com bankAccountId correto
+  if (bankAccountId) {
+    where.bankAccountId = parseInt(bankAccountId)
+  } else if (unitId) {
+    where.unitId = parseInt(unitId)
+  }
 
   const transactions = await prisma.transaction.findMany({
     where,
