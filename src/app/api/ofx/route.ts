@@ -121,17 +121,27 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Link OFX identifiers and save snapshots in parallel
+  // Link OFX identifiers and save snapshots in parallel.
+  // Always move the identifiers to the account the user actually selected —
+  // this corrects cases where a previous import linked them to the wrong account.
   const bankIdentifier = bankInfo?.bankId || bankInfo?.org
   const linkOp = bankAccId && bankIdentifier && bankInfo?.acctId
-    ? prisma.bankAccount.findUnique({ where: { id: bankAccId } }).then(acc => {
-        if (acc && !acc.ofxBankId) {
-          return prisma.bankAccount.update({
-            where: { id: bankAccId },
-            data: { ofxBankId: bankIdentifier, ofxAcctId: bankInfo!.acctId! },
-          })
-        }
-      }).catch(() => {})
+    ? (async () => {
+        // Remove the same identifiers from any OTHER account that currently holds them
+        await prisma.bankAccount.updateMany({
+          where: {
+            ofxBankId: bankIdentifier,
+            ofxAcctId: bankInfo!.acctId!,
+            id: { not: bankAccId },
+          },
+          data: { ofxBankId: null, ofxAcctId: null },
+        }).catch(() => {})
+        // Set (or confirm) identifiers on the selected account
+        await prisma.bankAccount.update({
+          where: { id: bankAccId },
+          data: { ofxBankId: bankIdentifier, ofxAcctId: bankInfo!.acctId! },
+        }).catch(() => {})
+      })()
     : Promise.resolve()
 
   await Promise.all([...snapshotOps, linkOp])

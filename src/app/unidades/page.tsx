@@ -7,6 +7,7 @@ export default function Unidades() {
   const [loading, setLoading] = useState(true)
   const [seeding, setSeeding] = useState(false)
   const [toast, setToast] = useState('')
+  const [unlinking, setUnlinking] = useState<number | null>(null)
 
   const load = () =>
     fetch('/api/units').then(r => r.json()).then(d => { setUnits(d); setLoading(false) })
@@ -17,14 +18,31 @@ export default function Unidades() {
 
   const seed = async () => {
     setSeeding(true)
-    const res = await fetch('/api/units/seed', { method: 'POST' })
-    const data = await res.json()
+    await fetch('/api/units/seed', { method: 'POST' })
     await load()
     setSeeding(false)
-    showToast(`✓ Unidades e contas bancárias carregadas!`)
+    showToast('✓ Unidades e contas bancárias carregadas!')
+  }
+
+  const unlinkOfx = async (bankId: number, bankName: string) => {
+    if (!confirm(`Desvincular identificadores OFX da conta "${bankName}"?\n\nPróximos extratos dessa conta precisarão ser associados manualmente.`)) return
+    setUnlinking(bankId)
+    const res = await fetch(`/api/bank-accounts/${bankId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ofxBankId: null, ofxAcctId: null }),
+    })
+    if (res.ok) {
+      showToast(`✓ Vínculo OFX removido de "${bankName}"`)
+      await load()
+    } else {
+      showToast('Erro ao remover vínculo')
+    }
+    setUnlinking(null)
   }
 
   const totalBanks = units.reduce((acc, u) => acc + u.bankAccounts.length, 0)
+  const linkedBanks = units.reduce((acc, u) => acc + u.bankAccounts.filter((b: any) => b.ofxBankId).length, 0)
 
   return (
     <Shell>
@@ -62,12 +80,14 @@ export default function Unidades() {
               <div className="metric-value">{totalBanks}</div>
             </div>
             <div className="metric-card">
-              <div className="metric-label">Status</div>
-              <div className="metric-value" style={{ fontSize: 14, color: '#1a7a4a' }}>Ativo</div>
+              <div className="metric-label">Vinculadas ao OFX</div>
+              <div className="metric-value" style={{ color: linkedBanks > 0 ? '#1a7a4a' : 'var(--brave-gray)' }}>
+                {linkedBanks}
+              </div>
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
             {units.map(unit => (
               <div key={unit.id} className="card">
                 <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 700, fontSize: 15, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -76,18 +96,42 @@ export default function Unidades() {
                     {unit.bankAccounts.length} conta{unit.bankAccounts.length !== 1 ? 's' : ''}
                   </span>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {unit.bankAccounts.map((bank: any) => (
                     <div key={bank.id} style={{
-                      background: 'var(--brave-light)', borderRadius: 6,
-                      padding: '8px 12px', fontSize: 13,
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                      background: 'var(--brave-light)', borderRadius: 8,
+                      padding: '10px 12px', fontSize: 13,
                     }}>
-                      <span>{bank.name}</span>
-                      {bank.initialBalance > 0 && (
-                        <span style={{ fontSize: 12, color: '#1a7a4a', fontWeight: 600 }}>
-                          R$ {bank.initialBalance.toFixed(2)}
-                        </span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 500 }}>{bank.name}</span>
+                        {bank.initialBalance > 0 && (
+                          <span style={{ fontSize: 12, color: '#1a7a4a', fontWeight: 600 }}>
+                            R$ {bank.initialBalance.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+
+                      {bank.ofxBankId && (
+                        <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{
+                            fontSize: 11, background: '#e8f5e9', color: '#1a7a4a',
+                            borderRadius: 4, padding: '2px 7px', fontWeight: 500,
+                          }}>
+                            🔗 OFX: {bank.ofxBankId}
+                            {bank.ofxAcctId && ` · ...${String(bank.ofxAcctId).slice(-6)}`}
+                          </span>
+                          <button
+                            onClick={() => unlinkOfx(bank.id, bank.name)}
+                            disabled={unlinking === bank.id}
+                            style={{
+                              fontSize: 10, background: 'none', border: '1px solid #ddd',
+                              borderRadius: 4, padding: '2px 7px', cursor: 'pointer',
+                              color: 'var(--brave-gray)',
+                            }}
+                          >
+                            {unlinking === bank.id ? '...' : 'Desvincular'}
+                          </button>
+                        </div>
                       )}
                     </div>
                   ))}
