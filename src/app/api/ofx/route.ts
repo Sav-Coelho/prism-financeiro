@@ -52,19 +52,26 @@ export async function POST(req: NextRequest) {
   // so we never silently drop records. Transactions with the same fitid but a
   // different (or null) bankAccountId are legitimately new and must be inserted.
   const fitidsToCheck = data.map(d => d.fitid).filter(Boolean) as string[]
-  const alreadyInDb = new Set<string>()
+  // Chave composta fitid+date: Bradesco reutiliza FITIDs entre períodos distintos
+  const alreadyInDb = new Set<string>() // "fitid|YYYY-MM-DD"
   if (fitidsToCheck.length > 0) {
     const existing = await prisma.transaction.findMany({
       where: {
         fitid: { in: fitidsToCheck },
         bankAccountId: bankAccId,
       },
-      select: { fitid: true },
+      select: { fitid: true, date: true },
     })
-    existing.forEach(e => { if (e.fitid) alreadyInDb.add(e.fitid) })
+    existing.forEach(e => {
+      if (e.fitid) alreadyInDb.add(`${e.fitid}|${e.date.toISOString().slice(0, 10)}`)
+    })
   }
 
-  const toInsert = data.filter(d => !d.fitid || !alreadyInDb.has(d.fitid))
+  const toInsert = data.filter(d => {
+    if (!d.fitid) return true
+    const dateStr = d.date.toISOString().slice(0, 10)
+    return !alreadyInDb.has(`${d.fitid}|${dateStr}`)
+  })
   const alreadyImportedCount = data.length - toInsert.length
 
   const result = await prisma.transaction.createMany({ data: toInsert, skipDuplicates: true })

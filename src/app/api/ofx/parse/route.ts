@@ -40,24 +40,34 @@ export async function POST(req: NextRequest) {
   // Scope duplicate check strictly to the matched bank account.
   // If no account was identified yet, all transactions are new (can't be duplicates for an unknown account).
   const fitids = parsed.map(tx => tx.fitid).filter(Boolean) as string[]
-  const existingMap = new Map<string, string>() // fitid → importedAt ISO string
+  // Chave composta: fitid + date (YYYY-MM-DD) — Bradesco reutiliza FITIDs entre períodos
+  const existingMap = new Map<string, string>() // "fitid|YYYY-MM-DD" → importedAt ISO
   if (matchedBankAccount && fitids.length > 0) {
     const existing = await prisma.transaction.findMany({
       where: { fitid: { in: fitids }, bankAccountId: matchedBankAccount.id },
-      select: { fitid: true, createdAt: true }
+      select: { fitid: true, date: true, createdAt: true }
     })
-    existing.forEach(e => { if (e.fitid) existingMap.set(e.fitid, e.createdAt.toISOString()) })
+    existing.forEach(e => {
+      if (e.fitid) {
+        const key = `${e.fitid}|${e.date.toISOString().slice(0, 10)}`
+        existingMap.set(key, e.createdAt.toISOString())
+      }
+    })
   }
 
-  const transactions = parsed.map(tx => ({
-    fitid: tx.fitid,
-    date: tx.date.toISOString(),
-    amount: tx.amount,
-    memo: tx.memo,
-    alreadyImported: existingMap.has(tx.fitid),
-    importedAt: existingMap.get(tx.fitid) ?? null,
-    isBalance: tx.isBalance,
-  }))
+  const transactions = parsed.map(tx => {
+    const dateStr = tx.date.toISOString().slice(0, 10)
+    const key = `${tx.fitid}|${dateStr}`
+    return {
+      fitid: tx.fitid,
+      date: tx.date.toISOString(),
+      amount: tx.amount,
+      memo: tx.memo,
+      alreadyImported: existingMap.has(key),
+      importedAt: existingMap.get(key) ?? null,
+      isBalance: tx.isBalance,
+    }
+  })
 
   return NextResponse.json({
     transactions,

@@ -58,7 +58,7 @@ model Transaction {
   year                    Int
   createdAt               DateTime     @default(now())
 
-  @@unique([fitid, bankAccountId])
+  @@unique([fitid, bankAccountId, date])
 }
 
 model BalanceSnapshot {
