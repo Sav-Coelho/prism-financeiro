@@ -1,6 +1,37 @@
 import { prisma } from '@/lib/prisma'
 import { NextRequest, NextResponse } from 'next/server'
 
+// POST /api/debug/repair — corrige month/year de transações com valor errado (off-by-1)
+export async function POST() {
+  const all = await prisma.transaction.findMany({
+    select: { id: true, date: true, month: true, year: true },
+  })
+
+  const toFix = all.filter(tx => {
+    const correctMonth = tx.date.getMonth() + 1
+    const correctYear  = tx.date.getFullYear()
+    return tx.month !== correctMonth || tx.year !== correctYear
+  })
+
+  let fixed = 0
+  for (const tx of toFix) {
+    await prisma.transaction.update({
+      where: { id: tx.id },
+      data: {
+        month: tx.date.getMonth() + 1,
+        year:  tx.date.getFullYear(),
+      },
+    })
+    fixed++
+  }
+
+  return NextResponse.json({ total: all.length, fixed, sample: toFix.slice(0, 5).map(t => ({
+    id: t.id, storedMonth: t.month, storedYear: t.year,
+    correctMonth: t.date.getMonth() + 1, correctYear: t.date.getFullYear(),
+    date: t.date,
+  })) })
+}
+
 // GET /api/debug?bankAccountId=X  — diagnóstico de transações por conta bancária
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
