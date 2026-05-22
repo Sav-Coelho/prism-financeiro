@@ -77,7 +77,10 @@ function extractLedgerBalance(text: string): OFXBalance | null {
   if (!amountRaw) return null
   const amount = parseFloat(amountRaw.replace(',', '.'))
   if (isNaN(amount)) return null
-  return { amount, date: dateRaw ? parseOFXDate(dateRaw) : null }
+  const parsedDate = dateRaw ? parseOFXDate(dateRaw) : null
+  // Rejeita datas absurdas (ex: Bradesco exporta DTASOF=00000000 → results in year ~1900)
+  const validDate = parsedDate && parsedDate.getFullYear() >= 2000 ? parsedDate : null
+  return { amount, date: validDate }
 }
 
 function extractTag(block: string, tag: string): string | null {

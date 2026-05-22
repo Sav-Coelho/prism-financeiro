@@ -40,13 +40,13 @@ export async function POST(req: NextRequest) {
   // Scope duplicate check strictly to the matched bank account.
   // If no account was identified yet, all transactions are new (can't be duplicates for an unknown account).
   const fitids = parsed.map(tx => tx.fitid).filter(Boolean) as string[]
-  const existingSet = new Set<string>()
+  const existingMap = new Map<string, string>() // fitid → importedAt ISO string
   if (matchedBankAccount && fitids.length > 0) {
     const existing = await prisma.transaction.findMany({
       where: { fitid: { in: fitids }, bankAccountId: matchedBankAccount.id },
-      select: { fitid: true }
+      select: { fitid: true, createdAt: true }
     })
-    existing.forEach(e => { if (e.fitid) existingSet.add(e.fitid) })
+    existing.forEach(e => { if (e.fitid) existingMap.set(e.fitid, e.createdAt.toISOString()) })
   }
 
   const transactions = parsed.map(tx => ({
@@ -54,7 +54,8 @@ export async function POST(req: NextRequest) {
     date: tx.date.toISOString(),
     amount: tx.amount,
     memo: tx.memo,
-    alreadyImported: existingSet.has(tx.fitid),
+    alreadyImported: existingMap.has(tx.fitid),
+    importedAt: existingMap.get(tx.fitid) ?? null,
     isBalance: tx.isBalance,
   }))
 

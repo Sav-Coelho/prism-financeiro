@@ -34,6 +34,7 @@ interface PreviewTx {
   amount: number
   memo: string
   alreadyImported: boolean
+  importedAt: string | null
   isBalance: boolean
 }
 
@@ -726,7 +727,10 @@ export default function Lancamentos() {
                       {tx.isBalance
                         ? <span style={{ fontSize: 11, color: '#b58b00', background: '#fff8e1', borderRadius: 4, padding: '2px 6px' }}>saldo</span>
                         : tx.alreadyImported
-                          ? <span style={{ fontSize: 11, color: 'var(--brave-gray)', background: 'var(--brave-light)', borderRadius: 4, padding: '2px 6px' }}>já importada</span>
+                          ? <span style={{ fontSize: 11, color: 'var(--brave-gray)', background: 'var(--brave-light)', borderRadius: 4, padding: '2px 6px' }}
+                              title={tx.importedAt ? `Importada em ${new Date(tx.importedAt).toLocaleString('pt-BR')}` : 'Já importada'}>
+                              já importada{tx.importedAt ? ` · ${new Date(tx.importedAt).toLocaleDateString('pt-BR')}` : ''}
+                            </span>
                           : <span style={{ fontSize: 11, color: '#1a7a4a' }}>nova</span>}
                     </td>
                   </tr>
