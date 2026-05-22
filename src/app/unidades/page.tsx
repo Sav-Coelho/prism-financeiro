@@ -8,6 +8,7 @@ export default function Unidades() {
   const [seeding, setSeeding] = useState(false)
   const [toast, setToast] = useState('')
   const [unlinking, setUnlinking] = useState<number | null>(null)
+  const [repairing, setRepairing] = useState(false)
 
   const load = () =>
     fetch('/api/units').then(r => r.json()).then(d => { setUnits(d); setLoading(false) })
@@ -22,6 +23,19 @@ export default function Unidades() {
     await load()
     setSeeding(false)
     showToast('✓ Unidades e contas bancárias carregadas!')
+  }
+
+  const repairMonths = async () => {
+    if (!confirm('Corrigir mês/ano de todos os lançamentos com data divergente?\n\nEsta operação é segura e pode ser executada mais de uma vez.')) return
+    setRepairing(true)
+    const res = await fetch('/api/debug', { method: 'POST' })
+    const data = await res.json()
+    setRepairing(false)
+    if (data.fixed > 0) {
+      showToast(`✓ ${data.fixed} lançamento${data.fixed > 1 ? 's corrigidos' : ' corrigido'} (mês/ano)`)
+    } else {
+      showToast('Nenhum lançamento precisou de correção')
+    }
   }
 
   const unlinkOfx = async (bankId: number, bankName: string) => {
@@ -51,11 +65,17 @@ export default function Unidades() {
           <h1 className="page-title">Unidades</h1>
           <p className="page-subtitle">Gerencie as unidades e contas bancárias</p>
         </div>
-        {units.length === 0 && (
-          <button className="btn btn-secondary" onClick={seed} disabled={seeding}>
-            {seeding ? 'Carregando...' : '⚡ Carregar Unidades Padrão'}
+        <div className="flex gap-2">
+          <button className="btn btn-secondary" onClick={repairMonths} disabled={repairing}
+            title="Corrige lançamentos onde o mês/ano armazenado não bate com a data da transação">
+            {repairing ? 'Corrigindo...' : '🔧 Reparar Meses'}
           </button>
-        )}
+          {units.length === 0 && (
+            <button className="btn btn-secondary" onClick={seed} disabled={seeding}>
+              {seeding ? 'Carregando...' : '⚡ Carregar Unidades Padrão'}
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
