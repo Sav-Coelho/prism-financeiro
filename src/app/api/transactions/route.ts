@@ -6,15 +6,17 @@ export async function GET(req: NextRequest) {
   const month = searchParams.get('month')
   const year = searchParams.get('year')
   const unitId = searchParams.get('unitId')
+  const bankAccountId = searchParams.get('bankAccountId')
 
   const where: Record<string, unknown> = {}
   if (month) where.month = parseInt(month)
   if (year) where.year = parseInt(year)
   if (unitId) where.unitId = parseInt(unitId)
+  if (bankAccountId) where.bankAccountId = parseInt(bankAccountId)
 
   const transactions = await prisma.transaction.findMany({
     where,
-    include: { account: true, unit: true },
+    include: { account: true, unit: true, bankAccount: { select: { id: true, name: true } } },
     orderBy: { date: 'desc' },
   })
   return NextResponse.json(transactions)

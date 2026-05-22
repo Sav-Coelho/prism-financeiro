@@ -62,6 +62,7 @@ export default function Lancamentos() {
   const [accounts, setAccounts] = useState<any[]>([])
   const [units, setUnits] = useState<any[]>([])
   const [unitId, setUnitId] = useState<string>('')
+  const [filterBankId, setFilterBankId] = useState<string>('')
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
   const [loading, setLoading] = useState(true)
@@ -108,8 +109,9 @@ export default function Lancamentos() {
   const load = () => {
     setLoading(true)
     const unitParam = unitId ? `&unitId=${unitId}` : ''
+    const bankParam = filterBankId ? `&bankAccountId=${filterBankId}` : ''
     Promise.all([
-      fetch(`/api/transactions?month=${month}&year=${year}${unitParam}`).then(r => r.json()),
+      fetch(`/api/transactions?month=${month}&year=${year}${unitParam}${bankParam}`).then(r => r.json()),
       fetch('/api/accounts').then(r => r.json()),
       fetch('/api/units').then(r => r.json()),
     ]).then(([txs, accs, uns]) => {
@@ -120,7 +122,8 @@ export default function Lancamentos() {
     })
   }
 
-  useEffect(() => { load() }, [month, year, unitId])
+  useEffect(() => { load() }, [month, year, unitId, filterBankId])
+  useEffect(() => { setFilterBankId('') }, [unitId])
 
   const parseOFX = async (file: File) => {
     setParsing(true)
@@ -373,6 +376,7 @@ export default function Lancamentos() {
 
   const bankAccountsForUnit = units.find(u => String(u.id) === previewUnitId)?.bankAccounts ?? []
   const manualBankAccounts = units.find((u: any) => String(u.id) === manualUnitId)?.bankAccounts ?? []
+  const filterBankAccounts: any[] = units.find((u: any) => String(u.id) === unitId)?.bankAccounts ?? []
 
   const saveManual = async () => {
     if (!manualDate || !manualDesc.trim() || !manualAmount || !manualUnitId) {
@@ -416,11 +420,19 @@ export default function Lancamentos() {
           <h1 className="page-title">Lançamentos</h1>
           <p className="page-subtitle">Importe extratos OFX e classifique cada transação</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <select className="form-select" style={{ width: 150 }} value={unitId} onChange={e => setUnitId(e.target.value)}>
             <option value="">Todas as unidades</option>
             {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
+          {unitId && filterBankAccounts.length > 0 && (
+            <select className="form-select" style={{ width: 170 }} value={filterBankId} onChange={e => setFilterBankId(e.target.value)}>
+              <option value="">Todos os bancos</option>
+              {filterBankAccounts.map((b: any) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          )}
           <select className="form-select" style={{ width: 120 }} value={month} onChange={e => setMonth(+e.target.value)}>
             {MONTH_NAMES.slice(1).map((m, i) => (
               <option key={i + 1} value={i + 1}>{m}</option>
@@ -759,7 +771,9 @@ export default function Lancamentos() {
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--brave-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13 }}>
-            {unitId ? units.find(u => u.id === parseInt(unitId))?.name : 'Consolidado'} — {MONTH_NAMES[month]}/{year} — {filtered.length} lançamentos
+            {unitId ? units.find(u => u.id === parseInt(unitId))?.name : 'Consolidado'}
+            {filterBankId ? ` · ${filterBankAccounts.find((b: any) => String(b.id) === filterBankId)?.name}` : ''}
+            {' '}— {MONTH_NAMES[month]}/{year} — {filtered.length} lançamentos
           </span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {semConta > 0 && (
@@ -815,7 +829,10 @@ export default function Lancamentos() {
                       )}
                     </td>
                     <td style={{ fontSize: 11, color: 'var(--brave-gray)', whiteSpace: 'nowrap' }}>
-                      {tx.unit?.name || '—'}
+                      <div>{tx.unit?.name || '—'}</div>
+                      {tx.bankAccount?.name && (
+                        <div style={{ fontSize: 10, color: '#aaa', marginTop: 1 }}>{tx.bankAccount.name}</div>
+                      )}
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', color: tx.amount >= 0 ? '#1a7a4a' : '#c0392b' }}>
                       {fmt(tx.amount)}
