@@ -7,6 +7,7 @@ const UNITS_DATA = [
   { name: 'CIPO',        banks: ['ITAU CIPO', 'BRADESCO CIPO'] },
   { name: 'NOVA SOURE',  banks: ['ITAU NOVA SOURE', 'CAIXA NOVA SOURE'] },
   { name: 'FERNANDA',    banks: ['ITAU FERNANDA', 'BRADESCO FERNANDA', 'BNB FERNANDA'] },
+  { name: 'BORGES',      banks: ['BRADESCO BORGES', 'ITAU BORGES'] },
 ]
 
 export async function POST() {

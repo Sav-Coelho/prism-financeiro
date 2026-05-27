@@ -70,11 +70,9 @@ export default function Unidades() {
             title="Corrige lançamentos onde o mês/ano armazenado não bate com a data da transação">
             {repairing ? 'Corrigindo...' : '🔧 Reparar Meses'}
           </button>
-          {units.length === 0 && (
-            <button className="btn btn-secondary" onClick={seed} disabled={seeding}>
-              {seeding ? 'Carregando...' : '⚡ Carregar Unidades Padrão'}
-            </button>
-          )}
+          <button className="btn btn-secondary" onClick={seed} disabled={seeding}>
+            {seeding ? 'Carregando...' : '⚡ Sincronizar Unidades'}
+          </button>
         </div>
       </div>
 
