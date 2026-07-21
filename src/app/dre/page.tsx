@@ -177,36 +177,91 @@ export default function DREPage() {
             </div>
           )}
 
-          <div className="grid-2 mb-6">
-            {/* DRE Estruturado */}
-            <div className="card" style={{ overflowY: 'auto', maxHeight: 680 }}>
-              <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
-                DRE — {MONTH_NAMES[month]}/{year} · {unitLabel}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--brave-gray)', marginBottom: 16 }}>
-                % calculado sobre Receita Operacional
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {dre.lines.map((line: any, i: number) => (
-                  <div key={i} style={lineStyle(line.type, line.indent, line.value)}>
-                    <div>
-                      <div style={labelStyle(line.type, line.indent)}>{line.label}</div>
-                      {line.sublabel && (
-                        <div style={{ fontSize: 10, color: 'var(--brave-gray)' }}>{line.sublabel}</div>
-                      )}
+          {/* Pontos de Equilíbrio */}
+          <div className="card mb-6">
+            <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 700, fontSize: 14, marginBottom: 2 }}>
+              Pontos de Equilíbrio — {MONTH_NAMES[month]}/{year}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--brave-gray)', marginBottom: 16 }}>
+              Receita mínima necessária para zerar o resultado em cada nível · Margem de contribuição: {(dre.mcPct * 100).toFixed(1)}% da receita
+            </div>
+            {dre.mcPct > 0 ? (
+              <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                {[
+                  { sigla: 'PEO', label: 'Ponto de Equilíbrio Operacional', value: dre.peo, hint: 'cobre os custos fixos', achieved: dre.receitaBruta >= dre.peo },
+                  { sigla: 'PEI', label: 'Ponto de Equilíbrio de Investimentos', value: dre.pei, hint: 'cobre custos fixos + investimentos', achieved: dre.receitaBruta >= dre.pei },
+                  { sigla: 'PEF', label: 'Ponto de Equilíbrio Financeiro', value: dre.pef, hint: 'cobre tudo + desembolsos não operacionais', achieved: dre.receitaBruta >= dre.pef, highlight: true },
+                ].map(pe => (
+                  <div key={pe.sigla} className="metric-card" style={pe.highlight ? { border: '2px solid var(--brave-yellow)' } : undefined}>
+                    <div className="metric-accent" style={{ background: pe.achieved ? '#1a7a4a' : '#c0392b' }} />
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                      <span style={{ fontFamily: 'var(--font-sub)', fontWeight: 700, fontSize: 13 }}>{pe.sigla}</span>
+                      <span style={{ fontSize: 10, color: pe.achieved ? '#1a7a4a' : '#c0392b', fontWeight: 600 }}>
+                        {pe.achieved ? '✓ atingido' : '✗ não atingido'}
+                      </span>
                     </div>
-                    <div style={{ textAlign: 'right', minWidth: 100 }}>
-                      <div style={valueStyle(line.type, line.value)}>
-                        {line.value !== 0 ? fmt(line.value) : '—'}
-                      </div>
-                      {(line.type === 'subtotal' || line.type === 'group') && line.indent === 0 && dre.receitaBruta > 0 && line.value !== 0 && (
-                        <div style={{ fontSize: 10, color: 'var(--brave-gray)' }}>
-                          {pct(Math.abs(line.value), dre.receitaBruta)}
-                        </div>
-                      )}
-                    </div>
+                    <div className="metric-value" style={{ fontSize: 17 }}>{fmt(pe.value)}</div>
+                    <div style={{ fontSize: 10, color: 'var(--brave-gray)', marginTop: 2 }}>{pe.label} — {pe.hint}</div>
                   </div>
                 ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--brave-gray)', padding: '8px 0' }}>
+                Margem de contribuição não positiva no período — o ponto de equilíbrio não é calculável (a operação não cobre os custos variáveis).
+              </div>
+            )}
+          </div>
+
+          <div className="grid-2 mb-6">
+            {/* DRE Estruturado */}
+            <div className="card" style={{ overflowY: 'auto', maxHeight: 680, padding: 0 }}>
+              {/* Cabeçalho da tabela */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 14px 6px 14px', borderBottom: '1px solid var(--brave-light)' }}>
+                <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13 }}>
+                  DRE — {MONTH_NAMES[month]}/{year} · {unitLabel}
+                </div>
+                <div style={{ display: 'flex', gap: 8, textAlign: 'right' }}>
+                  <div style={{ fontSize: 11, color: 'var(--brave-gray)', minWidth: 90 }}>Valor</div>
+                  <div style={{ fontSize: 11, color: 'var(--brave-gray)', minWidth: 52 }}>AV %</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--brave-gray)', padding: '4px 14px 10px', borderBottom: '1px solid var(--brave-light)' }}>
+                AV % = Análise Vertical — participação sobre a Receita Operacional Bruta
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '6px 0' }}>
+                {dre.lines.map((line: any, i: number) => {
+                  const showPct = line.type !== 'transfer' && line.type !== 'breakeven' && line.value !== 0 && dre.receitaBruta > 0
+                  const avPct = showPct ? pct(Math.abs(line.value), dre.receitaBruta) : '—'
+                  const isHighlight = line.type === 'subtotal'
+                  const pctColor = isHighlight
+                    ? (line.value >= 0 ? '#1a7a4a' : '#c0392b')
+                    : 'var(--brave-gray)'
+
+                  return (
+                    <div key={i} style={{ ...lineStyle(line.type, line.indent, line.value), justifyContent: 'space-between' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={labelStyle(line.type, line.indent)}>{line.label}</div>
+                        {line.sublabel && (
+                          <div style={{ fontSize: 10, color: 'var(--brave-gray)' }}>{line.sublabel}</div>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                        <div style={{ ...valueStyle(line.type, line.value), minWidth: 90, textAlign: 'right' }}>
+                          {line.value !== 0 ? fmt(line.value) : '—'}
+                        </div>
+                        <div style={{
+                          minWidth: 52, textAlign: 'right',
+                          fontSize: isHighlight ? 12 : 11,
+                          fontWeight: isHighlight ? 700 : 400,
+                          color: showPct ? pctColor : 'transparent',
+                        }}>
+                          {showPct ? avPct : '—'}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
 
