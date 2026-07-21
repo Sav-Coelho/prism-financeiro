@@ -8,14 +8,17 @@ export async function GET(req: NextRequest) {
   const year = parseInt(searchParams.get('year') || '0')
   const unitId = searchParams.get('unitId')
 
-  if (!month || !year) {
-    return NextResponse.json({ error: 'month e year são obrigatórios' }, { status: 400 })
+  if (!year) {
+    return NextResponse.json({ error: 'year é obrigatório' }, { status: 400 })
   }
 
   const unitFilter = unitId ? { unitId: parseInt(unitId) } : {}
 
+  // month=0 → DRE consolidado do ano inteiro (soma de todos os meses)
+  const monthFilter = month > 0 ? { month } : {}
+
   const transactions = await prisma.transaction.findMany({
-    where: { month, year, accountId: { not: null }, ...unitFilter },
+    where: { ...monthFilter, year, accountId: { not: null }, ...unitFilter },
     include: { account: true }
   })
 

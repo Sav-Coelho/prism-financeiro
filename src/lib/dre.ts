@@ -26,6 +26,12 @@ export interface DREData {
   lucroAposInvestimentos: number
   lucroAntesImpostos: number
   resultadoLiquido: number
+  peo: number                   // Ponto de Equilíbrio Operacional
+  pei: number                   // Ponto de Equilíbrio de Investimentos
+  pef: number                   // Ponto de Equilíbrio Financeiro
+  mcPct: number                 // margem de contribuição / receita operacional
+  custosFixos: number
+  investimentos: number
   orphaned: DREOrphan[]         // dreGroups não reconhecidos pela estrutura do DRE
 }
 
@@ -39,6 +45,7 @@ export const KNOWN_DRE_GROUPS = new Set([
   'Despesas Financeiras',
   'Despesas com Pessoal',
   'Despesas com Marketing',
+  'Despesas Comerciais',
   'Investimentos',
   'Receita Não Operacional',
   'Despesas Não Operacionais',
@@ -102,7 +109,8 @@ export function calcDRE(
   const despFin      = g('Despesas Financeiras')
   const despPessoal  = g('Despesas com Pessoal')
   const despMkt      = g('Despesas com Marketing')
-  const custosFixos  = despAdmin + despFin + despPessoal + despMkt
+  const despCom      = g('Despesas Comerciais')
+  const custosFixos  = despAdmin + despFin + despPessoal + despMkt + despCom
   const lucroOp      = margem - custosFixos
 
   const invest       = g('Investimentos')
@@ -158,6 +166,9 @@ export function calcDRE(
     { type: 'group', label: 'Despesas com Marketing', value: -despMkt, indent: 1, highlight: false },
     ...accts('Despesas com Marketing', false, 2),
 
+    { type: 'group', label: 'Despesas Comerciais', value: -despCom, indent: 1, highlight: false },
+    ...accts('Despesas Comerciais', false, 2),
+
     { type: 'subtotal', label: '(=) Lucro Operacional', sublabel: 'EBIT', value: lucroOp, indent: 0, highlight: true },
     ...(pei > 0 ? [{ type: 'breakeven' as const, label: '(=) Ponto de Equilíbrio de Investimentos', value: pei, indent: 0, highlight: false }] : []),
 
@@ -210,6 +221,9 @@ export function calcDRE(
     lucroAposInvestimentos: lucroAposInv,
     lucroAntesImpostos: lucroAntesIR,
     resultadoLiquido: lucroLiq,
+    peo, pei, pef, mcPct,
+    custosFixos,
+    investimentos: invest,
     orphaned,
   }
 }
