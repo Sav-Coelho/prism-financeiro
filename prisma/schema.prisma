@@ -10,10 +10,15 @@ datasource db {
 }
 
 model Unit {
-  id           Int           @id @default(autoincrement())
-  name         String        @unique
-  bankAccounts BankAccount[]
-  transactions Transaction[]
+  id             Int             @id @default(autoincrement())
+  name           String          @unique
+  bankAccounts   BankAccount[]
+  transactions   Transaction[]
+  clients        Client[]
+  sales          Sale[]
+  salesRecords   SalesRecord[]
+  stockItems     StockItem[]
+  marginProducts MarginProduct[]
 }
 
 model BankAccount {
@@ -70,4 +75,133 @@ model BalanceSnapshot {
   createdAt     DateTime    @default(now())
 
   @@unique([bankAccountId, date])
+}
+
+// ── Clientes & Vendas (portado de prism-mais-vidas) ──
+model Client {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String?
+  phone     String?
+  cpf       String?
+  unitId    Int?
+  unit      Unit?    @relation(fields: [unitId], references: [id])
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  sales     Sale[]
+}
+
+model Sale {
+  id          Int      @id @default(autoincrement())
+  clientId    Int
+  client      Client   @relation(fields: [clientId], references: [id])
+  description String
+  amount      Float
+  date        DateTime
+  unitId      Int?
+  unit        Unit?    @relation(fields: [unitId], references: [id])
+  month       Int
+  year        Int
+  createdAt   DateTime @default(now())
+}
+
+// ── Curva ABC & Margem — planilhas mensais (portado de prism-mais-vidas) ──
+// Vendas importadas por planilha mensal — alimenta a Curva ABC de Vendas.
+// Uma linha por produto por mês/ano/unidade.
+model SalesRecord {
+  id        Int      @id @default(autoincrement())
+  product   String
+  sku       String?
+  category  String?
+  quantity  Float    @default(0)
+  revenue   Float    @default(0)
+  cost      Float    @default(0)
+  unitId    Int?
+  unit      Unit?    @relation(fields: [unitId], references: [id])
+  month     Int
+  year      Int
+  createdAt DateTime @default(now())
+
+  @@index([month, year])
+}
+
+// Posição de estoque importada por planilha mensal — Curva ABC de Estoque
+// e indicadores de giro/cobertura/GMROI (cruzados com o CMV da DRE).
+model StockItem {
+  id        Int      @id @default(autoincrement())
+  product   String
+  sku       String?
+  category  String?
+  quantity  Float    @default(0)
+  unitCost  Float    @default(0)
+  unitId    Int?
+  unit      Unit?    @relation(fields: [unitId], references: [id])
+  month     Int
+  year      Int
+  createdAt DateTime @default(now())
+
+  @@index([month, year])
+}
+
+// Produtos com preço e custo de reposição — base da Análise de Margem de
+// Contribuição por produto. O rateio de Adm/Financeiras é calculado em runtime
+// a partir da DRE do período (participação na receita).
+model MarginProduct {
+  id              Int      @id @default(autoincrement())
+  product         String
+  sku             String?
+  category        String?
+  salePrice       Float    @default(0)
+  replacementCost Float    @default(0)
+  quantity        Float    @default(0)
+  unitId          Int?
+  unit            Unit?    @relation(fields: [unitId], references: [id])
+  month           Int
+  year            Int
+  createdAt       DateTime @default(now())
+
+  @@index([month, year])
+}
+
+// ── Controle de Compras — modelo SamFarma adaptado (portado de prism-vale-sol) ──
+// Comprador com limite mensal de compras.
+model Comprador {
+  id     Int     @id @default(autoincrement())
+  nome   String  @unique
+  limite Float   @default(0)
+  setor  String?
+  ativo  Boolean @default(true)
+}
+
+// Pedido de compra com parcelamento: `parcelas` pagamentos, o 1º vence
+// `primeiraDias` dias após o pedido, os demais a cada `intervaloDias`.
+model PurchaseOrder {
+  id            Int      @id @default(autoincrement())
+  comprador     String
+  fornecedor    String?
+  tipo          String?  // Local | Externo | Frete
+  categoria     String?
+  dataPedido    DateTime
+  valor         Float
+  parcelas      Int      @default(1)
+  primeiraDias  Int      @default(30)
+  intervaloDias Int      @default(30)
+  status        String   @default("Pendente")
+  observacao    String?
+  createdAt     DateTime @default(now())
+
+  @@index([comprador])
+  @@index([dataPedido])
+}
+
+// Lista editável de categorias de compra.
+model PurchaseCategoria {
+  id   Int    @id @default(autoincrement())
+  nome String @unique
+}
+
+// Parâmetros do controle de compras (meta CMV, etc.).
+model PurchaseSetting {
+  key   String @id
+  value Float
 }
