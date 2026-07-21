@@ -18,11 +18,14 @@ interface SaveBody {
   ledgerBalance?: { amount: number; date: string | null } | null
   bankInfo?: { bankId: string | null; acctId: string | null; org: string | null } | null
   balanceTransactions?: { date: string; amount: number }[]
+  /** Mês/ano da fatura do cartão — quando presente, todos os lançamentos são contabilizados nesse mês */
+  invoiceMonth?: number | null
+  invoiceYear?: number | null
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json() as SaveBody
-  const { transactions, bankAccountId, ledgerBalance, bankInfo, balanceTransactions } = body
+  const { transactions, bankAccountId, ledgerBalance, bankInfo, balanceTransactions, invoiceMonth, invoiceYear } = body
 
   if (!Array.isArray(transactions) || transactions.length === 0) {
     return NextResponse.json({ error: 'Nenhuma transação selecionada' }, { status: 400 })
@@ -32,14 +35,17 @@ export async function POST(req: NextRequest) {
 
   const data = transactions.map(tx => {
     const d = new Date(tx.date)
+    // Para faturas de cartão: contabiliza no mês da fatura, não na data da compra
+    const txMonth = invoiceMonth ?? (d.getMonth() + 1)
+    const txYear = invoiceYear ?? d.getFullYear()
     return {
       fitid: tx.fitid,
       date: d,
       description: tx.memo,
       memo: tx.memo,
       amount: tx.amount,
-      month: d.getMonth() + 1,
-      year: d.getFullYear(),
+      month: txMonth,
+      year: txYear,
       accountId: tx.accountId ? parseInt(String(tx.accountId)) : null,
       unitId: tx.unitId ? parseInt(String(tx.unitId)) : null,
       bankAccountId: bankAccId,

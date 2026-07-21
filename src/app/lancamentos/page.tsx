@@ -4,15 +4,17 @@ import Shell from '@/components/Shell'
 import AccountCombobox from '@/components/AccountCombobox'
 import { MONTH_NAMES } from '@/lib/dre'
 import { tokenize, jaccardSimilarity } from '@/lib/classifier'
+import { parseCSV } from '@/lib/csv-parser'
 
 const REALTIME_THRESHOLD = 0.25
+const CARD_ACCEPT = '.csv,.CSV,.pdf,.PDF'
 
 const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('pt-BR')
 
-type Tab = 'ofx' | 'manual'
+type Tab = 'ofx' | 'cartao' | 'manual'
 
 const TAB_STYLE = (active: boolean): React.CSSProperties => ({
   padding: '8px 18px',
@@ -68,11 +70,14 @@ export default function Lancamentos() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [drag, setDrag] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'sem-conta' | 'classificado'>('all')
+  const [filter, setFilter] = useState<'all' | 'sem-conta' | 'classificado' | 'cartao'>('all')
   const [selectedTxIds, setSelectedTxIds] = useState<Set<number>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
+  const csvFileRef = useRef<HTMLInputElement>(null)
 
   const [tab, setTab] = useState<Tab>('ofx')
+  const [previewSource, setPreviewSource] = useState<'ofx' | 'csv'>('ofx')
+  const [invertSign, setInvertSign] = useState(true)
   const [manualDate, setManualDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [manualDesc, setManualDesc] = useState('')
   const [manualAmount, setManualAmount] = useState('')
@@ -93,6 +98,7 @@ export default function Lancamentos() {
   const [detectedBankInfo, setDetectedBankInfo] = useState<BankInfo | null>(null)
   const [matchedBankAccount, setMatchedBankAccount] = useState<MatchedBankAccount | null>(null)
   const [ledgerBalance, setLedgerBalance] = useState<LedgerBalance | null>(null)
+  const [pdfCardInfo, setPdfCardInfo] = useState<{ cardNumber: string; invoiceMonth: number; invoiceYear: number } | null>(null)
   const [suggestedFitids, setSuggestedFitids] = useState<Set<string>>(new Set())
   const [suggesting, setSuggesting] = useState(false)
   const [pendingSuggestions, setPendingSuggestions] = useState<{ fitid: string; accountId: number; accountName: string; accountCode: string; confidence: number }[]>([])
@@ -125,6 +131,41 @@ export default function Lancamentos() {
   useEffect(() => { load() }, [month, year, unitId, filterBankId])
   useEffect(() => { setFilterBankId('') }, [unitId])
 
+  // Busca sugestões históricas do classificador (não-bloqueante) — compartilhado OFX/cartão
+  const runClassifier = (txList: PreviewTx[]) => {
+    const toSuggest = txList.filter(t => !t.alreadyImported && !t.isBalance)
+    if (toSuggest.length === 0) return
+    setSuggesting(true)
+    fetch('/api/classify/suggest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memos: toSuggest.map(t => ({ fitid: t.fitid, memo: t.memo })) }),
+    })
+      .then(r => r.json())
+      .then((suggestions: { fitid: string; accountId: number; accountName: string; accountCode: string; confidence: number }[]) => {
+        if (suggestions.length > 0) {
+          setPendingSuggestions(suggestions)
+          setPanelMinimized(false)
+          setPanelPos({ x: Math.max(16, window.innerWidth / 2 - 190), y: Math.max(16, window.innerHeight / 2 - 180) })
+        }
+      })
+      .catch(() => {})
+      .finally(() => setSuggesting(false))
+  }
+
+  const resetPreview = () => {
+    setPreviewTxs(null)
+    setSelectedFitids(new Set())
+    setPreviewAccountMap({})
+    setPreviewTransferDestMap({})
+    setSuggestedFitids(new Set())
+    setMatchedBankAccount(null)
+    setDetectedBankInfo(null)
+    setLedgerBalance(null)
+    setPdfCardInfo(null)
+    setPreviewSource('ofx')
+  }
+
   const parseOFX = async (file: File) => {
     setParsing(true)
     const fd = new FormData()
@@ -134,12 +175,14 @@ export default function Lancamentos() {
     if (res.ok) {
       const txList: PreviewTx[] = data.transactions
       setPreviewTxs(txList)
+      setPreviewSource('ofx')
       setSelectedFitids(new Set(
         txList.filter((t: PreviewTx) => !t.alreadyImported && !t.isBalance).map((t: PreviewTx) => t.fitid)
       ))
       setPreviewAccountMap({})
       setPreviewTransferDestMap({})
       setSuggestedFitids(new Set())
+      setPdfCardInfo(null)
       setDetectedBankInfo(data.bankInfo ?? null)
       setMatchedBankAccount(data.matchedBankAccount ?? null)
       setLedgerBalance(data.ledgerBalance ?? null)
@@ -152,30 +195,109 @@ export default function Lancamentos() {
         setPreviewBankAccountId('')
       }
 
-      // Busca sugestões históricas (não-bloqueante)
-      const toSuggest = txList.filter(t => !t.alreadyImported && !t.isBalance)
-      if (toSuggest.length > 0) {
-        setSuggesting(true)
-        fetch('/api/classify/suggest', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ memos: toSuggest.map(t => ({ fitid: t.fitid, memo: t.memo })) }),
-        })
-          .then(r => r.json())
-          .then((suggestions: { fitid: string; accountId: number; accountName: string; accountCode: string; confidence: number }[]) => {
-            if (suggestions.length > 0) {
-              setPendingSuggestions(suggestions)
-              setPanelMinimized(false)
-              setPanelPos({ x: Math.max(16, window.innerWidth / 2 - 190), y: Math.max(16, window.innerHeight / 2 - 180) })
-            }
-          })
-          .catch(() => {})
-          .finally(() => setSuggesting(false))
-      }
+      runClassifier(txList)
     } else {
       showToast(`Erro: ${data.error}`)
     }
     setParsing(false)
+  }
+
+  // CSV genérico (Nubank, etc.) — parseado no cliente
+  const parseCSVFile = async (file: File) => {
+    setParsing(true)
+    try {
+      const text = await file.text()
+      const result = parseCSV(text, file.name, invertSign)
+
+      if (result.errors.length > 0 && result.transactions.length === 0) {
+        showToast(`Erro ao ler CSV: ${result.errors[0]}`)
+        setParsing(false)
+        return
+      }
+      if (result.errors.length > 0) {
+        showToast(`⚠ ${result.errors.length} linhas ignoradas. ${result.transactions.length} transações encontradas.`)
+      }
+
+      const txList: PreviewTx[] = result.transactions.map(t => ({
+        fitid: t.fitid,
+        date: t.date.toISOString(),
+        amount: t.amount,
+        memo: t.memo,
+        alreadyImported: false,
+        importedAt: null,
+        isBalance: false,
+      }))
+
+      setPreviewTxs(txList)
+      setPreviewSource('csv')
+      setSelectedFitids(new Set(txList.map(t => t.fitid)))
+      setPreviewAccountMap({})
+      setPreviewTransferDestMap({})
+      setSuggestedFitids(new Set())
+      setDetectedBankInfo(null)
+      setMatchedBankAccount(null)
+      setLedgerBalance(null)
+      setPdfCardInfo(null)
+      setPreviewUnitId(unitId)
+      setPreviewBankAccountId('')
+
+      runClassifier(txList)
+    } catch {
+      showToast('Erro ao processar arquivo CSV')
+    }
+    setParsing(false)
+  }
+
+  // Fatura de cartão Sicoob em PDF
+  const parsePDFFile = async (file: File) => {
+    setParsing(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/pdf/parse', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) {
+        if (data._debug_text) {
+          console.group('[PDF Debug] Texto extraído do PDF:')
+          console.log(data._debug_text)
+          console.groupEnd()
+        }
+        showToast(`Erro: ${data.error}`)
+        setParsing(false)
+        return
+      }
+
+      if (data.warnings?.length > 0) {
+        showToast(`⚠ ${data.warnings.length} linhas ignoradas. ${data.transactions.length} transações encontradas.`)
+      }
+
+      const txList = data.transactions as PreviewTx[]
+      setPreviewTxs(txList)
+      setPreviewSource('csv')
+      setSelectedFitids(new Set(txList.map((t: PreviewTx) => t.fitid)))
+      setPreviewAccountMap({})
+      setPreviewTransferDestMap({})
+      setSuggestedFitids(new Set())
+      setDetectedBankInfo(null)
+      setMatchedBankAccount(null)
+      setLedgerBalance(null)
+      setPreviewUnitId(unitId)
+      setPreviewBankAccountId('')
+      setPdfCardInfo({ cardNumber: data.cardNumber, invoiceMonth: data.invoiceMonth, invoiceYear: data.invoiceYear })
+
+      runClassifier(txList)
+    } catch {
+      showToast('Erro ao processar o PDF')
+    }
+    setParsing(false)
+  }
+
+  const handleCardFile = (file: File) => {
+    if (file.name.toLowerCase().endsWith('.pdf')) {
+      parsePDFFile(file)
+    } else {
+      parseCSVFile(file)
+    }
   }
 
   const handlePreviewAccountChange = (fitid: string, accountId: string) => {
@@ -311,16 +433,16 @@ export default function Lancamentos() {
         ledgerBalance,
         bankInfo: detectedBankInfo,
         balanceTransactions,
+        // Fatura de cartão: contabiliza todos os lançamentos no mês selecionado na página
+        invoiceMonth: previewSource === 'csv' ? month : null,
+        invoiceYear: previewSource === 'csv' ? year : null,
       })
     })
     const data = await res.json()
     if (res.ok) {
       const saldoMsg = ledgerBalance ? ` · Saldo ${fmt(ledgerBalance.amount)} salvo` : ''
       showToast(`✓ ${data.imported} importadas${data.skipped ? `, ${data.skipped} já existiam` : ''}${saldoMsg}`)
-      setPreviewTxs(null); setSelectedFitids(new Set()); setPreviewAccountMap({})
-      setPreviewTransferDestMap({})
-      setSuggestedFitids(new Set())
-      setMatchedBankAccount(null); setDetectedBankInfo(null); setLedgerBalance(null)
+      resetPreview()
       load()
     } else {
       showToast(`Erro: ${data.error}`)
@@ -364,12 +486,17 @@ export default function Lancamentos() {
   const selectAllVisible = () => setSelectedTxIds(new Set(filtered.map(t => t.id)))
   const clearTxSelection = () => setSelectedTxIds(new Set())
 
+  const isCardTx = (t: any) =>
+    t.fitid && (t.fitid.startsWith('sicoob_') || t.fitid.startsWith('csv_'))
+
   const filtered = transactions.filter(t => {
     if (filter === 'sem-conta') return !t.accountId
     if (filter === 'classificado') return !!t.accountId
+    if (filter === 'cartao') return isCardTx(t)
     return true
   })
 
+  const cartaoCount = transactions.filter(isCardTx).length
   const semConta = transactions.filter(t => !t.accountId).length
   const classificado = transactions.filter(t => !!t.accountId).length
   const selectableCount = previewTxs?.filter(t => !t.alreadyImported && !t.isBalance).length ?? 0
@@ -418,7 +545,7 @@ export default function Lancamentos() {
       <div className="page-header flex-between">
         <div>
           <h1 className="page-title">Lançamentos</h1>
-          <p className="page-subtitle">Importe extratos OFX e classifique cada transação</p>
+          <p className="page-subtitle">Importe extratos OFX, faturas de cartão e classifique cada transação</p>
         </div>
         <div className="flex gap-2" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <select className="form-select" style={{ width: 150 }} value={unitId} onChange={e => setUnitId(e.target.value)}>
@@ -447,6 +574,7 @@ export default function Lancamentos() {
       {!previewTxs && (
         <div style={{ display: 'flex', borderBottom: '1px solid var(--brave-light)', marginBottom: 20 }}>
           <button style={TAB_STYLE(tab === 'ofx')} onClick={() => setTab('ofx')}>📂 Extrato OFX</button>
+          <button style={TAB_STYLE(tab === 'cartao')} onClick={() => setTab('cartao')}>💳 Fatura Cartão de Crédito</button>
           <button style={TAB_STYLE(tab === 'manual')} onClick={() => setTab('manual')}>✏️ Lançamento Manual</button>
         </div>
       )}
@@ -463,6 +591,42 @@ export default function Lancamentos() {
           <div className="upload-icon">{parsing ? '⏳' : '📂'}</div>
           <div className="upload-title">{parsing ? 'Lendo extrato...' : 'Importar Extrato OFX'}</div>
           <div className="upload-sub">Clique ou arraste o arquivo .OFX — você verá uma prévia antes de salvar</div>
+        </div>
+      )}
+
+      {tab === 'cartao' && !previewTxs && (
+        <div className="mb-6">
+          <div className="card mb-3" style={{ padding: '12px 20px', background: '#fffbea', border: '1px solid #f0c040' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, color: '#7a5c00' }}>Formatos suportados</div>
+            <div style={{ fontSize: 12, color: '#7a5c00', lineHeight: 1.6 }}>
+              <strong>PDF Sicoob</strong> — extrato gerado pelo portal SiscoobCard ·{' '}
+              <strong>CSV genérico</strong> — colunas de data, descrição e valor (Nubank, etc.)
+            </div>
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>
+                <input type="checkbox" checked={invertSign} onChange={e => setInvertSign(e.target.checked)} />
+                Inverter sinal (apenas para CSV — PDF Sicoob inverte automaticamente)
+              </label>
+            </div>
+          </div>
+          <div
+            className={`upload-zone ${drag ? 'drag' : ''}`}
+            onDragOver={e => { e.preventDefault(); setDrag(true) }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) handleCardFile(f) }}
+            onClick={() => csvFileRef.current?.click()}
+          >
+            <input
+              ref={csvFileRef}
+              type="file"
+              accept={CARD_ACCEPT}
+              style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleCardFile(f); e.target.value = '' }}
+            />
+            <div className="upload-icon">{parsing ? '⏳' : '💳'}</div>
+            <div className="upload-title">{parsing ? 'Lendo fatura...' : 'Importar Fatura do Cartão de Crédito'}</div>
+            <div className="upload-sub">Clique ou arraste o arquivo <strong>.PDF</strong> (Sicoob) ou <strong>.CSV</strong> (outros cartões)</div>
+          </div>
         </div>
       )}
 
@@ -570,7 +734,12 @@ export default function Lancamentos() {
           <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--brave-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <div>
               <span style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13 }}>
-                Prévia do OFX — {previewTxs.length} linhas
+                {previewSource === 'csv'
+                  ? pdfCardInfo
+                    ? `💳 Fatura Sicoob — cartão ...${pdfCardInfo.cardNumber.slice(-4)} — ${MONTH_NAMES[pdfCardInfo.invoiceMonth]}/${pdfCardInfo.invoiceYear}`
+                    : '💳 Prévia da Fatura CSV'
+                  : '📂 Prévia do OFX'
+                } — {previewTxs.length} linhas
               </span>
               <div style={{ fontSize: 12, color: 'var(--brave-gray)', marginTop: 2 }}>
                 {selectedFitids.size} selecionadas · {previewTxs.filter(t => t.alreadyImported).length} já importadas
@@ -585,6 +754,13 @@ export default function Lancamentos() {
                   </span>
                 )}
               </div>
+              {previewSource === 'csv' && (
+                <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 12, background: '#e8f0fe', color: '#1a5fa8', borderRadius: 4, padding: '2px 10px', fontWeight: 600 }}>
+                    📅 Todos os lançamentos serão registrados em <strong>{MONTH_NAMES[month]}/{year}</strong> — ajuste o mês/ano no topo se necessário
+                  </span>
+                </div>
+              )}
               {(detectedBankInfo?.bankId || detectedBankInfo?.org) && (
                 <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                   {matchedBankAccount ? (
@@ -646,7 +822,7 @@ export default function Lancamentos() {
               <button className="btn btn-primary" onClick={saveSelected} disabled={saving || selectedFitids.size === 0 || !previewUnitId}>
                 {saving ? 'Salvando...' : `Salvar (${selectedFitids.size})`}
               </button>
-              <button className="btn btn-danger btn-sm" onClick={() => { setPreviewTxs(null); setSelectedFitids(new Set()); setPreviewAccountMap({}); setPreviewTransferDestMap({}); setSuggestedFitids(new Set()); setMatchedBankAccount(null); setDetectedBankInfo(null); setLedgerBalance(null) }}>
+              <button className="btn btn-danger btn-sm" onClick={resetPreview}>
                 Cancelar
               </button>
             </div>
@@ -753,7 +929,7 @@ export default function Lancamentos() {
         </div>
       )}
 
-      <div className="metrics-grid mb-6" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+      <div className="metrics-grid mb-6" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <div className="metric-card" style={{ cursor: 'pointer', border: filter === 'all' ? '2px solid var(--brave-yellow)' : '' }} onClick={() => setFilter('all')}>
           <div className="metric-label">Total no período</div>
           <div className="metric-value">{transactions.length}</div>
@@ -765,6 +941,10 @@ export default function Lancamentos() {
         <div className="metric-card" style={{ cursor: 'pointer', border: filter === 'classificado' ? '2px solid var(--brave-yellow)' : '' }} onClick={() => setFilter('classificado')}>
           <div className="metric-label">Classificados</div>
           <div className="metric-value" style={{ color: '#1a7a4a' }}>{classificado}</div>
+        </div>
+        <div className="metric-card" style={{ cursor: 'pointer', border: filter === 'cartao' ? '2px solid var(--brave-yellow)' : '' }} onClick={() => setFilter('cartao')}>
+          <div className="metric-label">💳 Cartão de Crédito</div>
+          <div className="metric-value" style={{ color: '#1a5fa8' }}>{cartaoCount}</div>
         </div>
       </div>
 
@@ -798,7 +978,7 @@ export default function Lancamentos() {
           <div style={{ padding: 60, textAlign: 'center', color: 'var(--brave-gray)' }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
             Nenhum lançamento encontrado.<br />
-            <span style={{ fontSize: 12 }}>Importe um OFX ou use a aba Lançamento Manual acima.</span>
+            <span style={{ fontSize: 12 }}>Importe um OFX/fatura ou use a aba Lançamento Manual acima.</span>
           </div>
         ) : (
           <div className="table-wrap">
@@ -823,7 +1003,14 @@ export default function Lancamentos() {
                     </td>
                     <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtDate(tx.date)}</td>
                     <td style={{ maxWidth: 240 }}>
-                      <div style={{ fontSize: 13 }}>{tx.description}</div>
+                      <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {isCardTx(tx) && (
+                          <span style={{ fontSize: 10, background: '#e8f0fe', color: '#1a5fa8', borderRadius: 4, padding: '1px 5px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            💳 cartão
+                          </span>
+                        )}
+                        {tx.description}
+                      </div>
                       {tx.memo && tx.memo !== tx.description && (
                         <div style={{ fontSize: 11, color: 'var(--brave-gray)' }}>{tx.memo}</div>
                       )}
