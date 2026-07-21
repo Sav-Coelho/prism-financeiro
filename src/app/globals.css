@@ -350,6 +350,43 @@ tr:hover td { background: rgba(237,242,244,0.6); }
 .mb-6 { margin-bottom: 24px; }
 .mt-4 { margin-top: 16px; }
 
+/* Controle de Compras (portado de prism-vale-sol, adaptado à identidade Brave) */
+.page-eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brave-yellow-dark);
+  margin-bottom: 8px;
+}
+.card-accent-yellow { border-top: 3px solid var(--brave-yellow); }
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--brave-light);
+}
+.card-title {
+  font-family: var(--font-title);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--brave-dark);
+}
+.card-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brave-gray);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+.empty-state { text-align: center; padding: 64px 40px; color: var(--brave-gray); }
+.empty-state-icon { font-size: 40px; margin-bottom: 14px; opacity: 0.45; }
+.empty-state-title { font-family: var(--font-title); font-weight: 700; font-size: 20px; color: var(--brave-dark); margin-bottom: 8px; }
+
 /* Responsive */
 @media (max-width: 768px) {
   :root { --sidebar-width: 0px; }
@@ -357,3 +394,5 @@ tr:hover td { background: rgba(237,242,244,0.6); }
   .main { padding: 16px; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
 }
+@media (max-width: 1280px) { .grid-5 { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 720px)  { .grid-5 { grid-template-columns: repeat(2, 1fr); } }
