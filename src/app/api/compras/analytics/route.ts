@@ -28,15 +28,17 @@ export async function GET() {
     prisma.comprador.findMany({ orderBy: { nome: 'asc' } }),
     prisma.purchaseSetting.findMany(),
     prisma.transaction.findMany({
-      where: { year: prevStart.getUTCFullYear(), month: prevStart.getUTCMonth() + 1, account: { dreGroup: 'Receita Operacional' } },
-      select: { amount: true },
+      where: { year: prevStart.getUTCFullYear(), month: prevStart.getUTCMonth() + 1, account: { dreGroup: { in: ['Receita Operacional', 'Deduções sobre a Venda'] } } },
+      select: { amount: true, account: { select: { dreGroup: true } } },
     }),
   ])
 
   const metaCmvPct = settings.find(s => s.key === 'metaCmvPct')?.value ?? 0.70
 
-  // receita de referência = Receita Operacional do mês anterior (último mês fechado)
-  const receitaRef = receitaRows.reduce((s, r) => s + Math.abs(r.amount), 0)
+  // receita de referência = RECEITA LÍQUIDA do mês anterior (Receita Operacional − Deduções sobre a Venda)
+  let recOp = 0, recDed = 0
+  receitaRows.forEach(r => { const v = Math.abs(r.amount); if (r.account?.dreGroup === 'Receita Operacional') recOp += v; else recDed += v })
+  const receitaRef = recOp - recDed
   const limiteCmvMensal = receitaRef * metaCmvPct
 
   // ── Resumo por comprador (comprado NO MÊS pela data do pedido) ──

@@ -295,7 +295,7 @@ function ConfigPanel({ cfg, an, onChange, showToast }: { cfg: Config; an: Analyt
             <span style={{ color: C.textSoft, fontSize: 13 }}>% da receita = teto de compras por mês</span>
           </div>
           <div style={{ marginTop: 12, fontSize: 12, color: C.textMuted, lineHeight: 1.6 }}>
-            Receita de referência (mês anterior{an.receitaRef.ym ? ` · ${an.receitaRef.ym}` : ''}): <b>{fmt(an.receitaRef.value)}</b><br />
+            Receita líquida de referência (mês anterior{an.receitaRef.ym ? ` · ${an.receitaRef.ym}` : ''}): <b>{fmt(an.receitaRef.value)}</b><br />
             Limite mensal de compras: <b style={{ color: C.navy }}>{fmt(an.limiteCmvMensal)}</b>
           </div>
         </div>
