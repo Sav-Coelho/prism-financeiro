@@ -86,7 +86,7 @@ function Dashboard({ an }: { an: Analytics }) {
         <Kpi label={`Comprado em ${an.refLabel}`} value={fmt(an.compradoTotalMes)} color={C.gold} />
         <Kpi label="Saldo disponível" value={fmt(an.saldoTotal)} color={an.saldoTotal >= 0 ? C.green : C.red} />
         <Kpi label="CMV atual (% receita)" value={pct(an.cmvAtualPct)} sub={`meta ${pct(an.metaCmvPct)}`} color={an.cmvAtualPct <= an.metaCmvPct ? C.green : C.red} />
-        <Kpi label={`Limite mensal p/ CMV`} value={fmt(an.limiteCmvMensal)} sub={an.receitaRef.value ? `${pct(an.metaCmvPct)} de ${fmtK(an.receitaRef.value)}` : 'sem receita na DRE'} color={C.navyMid} />
+        <Kpi label={`Limite mensal p/ CMV`} value={fmt(an.limiteCmvMensal)} sub={an.receitaRef.value ? `${pct(an.metaCmvPct)} de ${fmtK(an.receitaRef.value)} (mês anterior)` : 'sem receita no mês anterior'} color={C.navyMid} />
       </div>
 
       {/* PROJEÇÃO — o gráfico central */}
@@ -295,7 +295,7 @@ function ConfigPanel({ cfg, an, onChange, showToast }: { cfg: Config; an: Analyt
             <span style={{ color: C.textSoft, fontSize: 13 }}>% da receita = teto de compras por mês</span>
           </div>
           <div style={{ marginTop: 12, fontSize: 12, color: C.textMuted, lineHeight: 1.6 }}>
-            Receita de referência (última da DRE{an.receitaRef.ym ? ` · ${an.receitaRef.ym}` : ''}): <b>{fmt(an.receitaRef.value)}</b><br />
+            Receita de referência (mês anterior{an.receitaRef.ym ? ` · ${an.receitaRef.ym}` : ''}): <b>{fmt(an.receitaRef.value)}</b><br />
             Limite mensal de compras: <b style={{ color: C.navy }}>{fmt(an.limiteCmvMensal)}</b>
           </div>
         </div>

@@ -23,17 +23,19 @@ async function seedIfEmpty() {
     await prisma.purchaseSetting.create({ data: { key: 'metaCmvPct', value: 0.70 } })
 }
 
-// receita de referência = soma da Receita Operacional do último mês presente na DRE
+// receita de referência = Receita Operacional do MÊS ANTERIOR (último mês fechado).
+// Sempre o mês anterior ao atual — ex.: em julho, a referência é junho.
 async function receitaRef(): Promise<{ ym: string | null; value: number }> {
+  const now = new Date()
+  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+  const refYear = prev.getUTCFullYear()
+  const refMonth = prev.getUTCMonth() + 1
   const rows = await prisma.transaction.findMany({
-    where: { account: { dreGroup: 'Receita Operacional' } },
-    select: { year: true, month: true, amount: true },
+    where: { year: refYear, month: refMonth, account: { dreGroup: 'Receita Operacional' } },
+    select: { amount: true },
   })
-  if (!rows.length) return { ym: null, value: 0 }
-  const byMonth = new Map<string, number>()
-  rows.forEach(r => { const k = `${r.year}-${String(r.month).padStart(2, '0')}`; byMonth.set(k, (byMonth.get(k) ?? 0) + Math.abs(r.amount)) })
-  const latest = Array.from(byMonth.keys()).sort().pop()!
-  return { ym: latest, value: byMonth.get(latest) ?? 0 }
+  const value = rows.reduce((s, r) => s + Math.abs(r.amount), 0)
+  return { ym: `${refYear}-${String(refMonth).padStart(2, '0')}`, value }
 }
 
 export async function GET() {

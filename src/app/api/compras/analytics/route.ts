@@ -16,29 +16,28 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 export async function GET() {
+  // mês corrente (base do "comprado no mês") e mês anterior (base do limite de compras)
+  const now = new Date()
+  const curStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+  const prevStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+  const refYm = ymKey(curStart)
+  const recYm = ymKey(prevStart)
+
   const [pedidos, compradores, settings, receitaRows] = await Promise.all([
     prisma.purchaseOrder.findMany(),
     prisma.comprador.findMany({ orderBy: { nome: 'asc' } }),
     prisma.purchaseSetting.findMany(),
     prisma.transaction.findMany({
-      where: { account: { dreGroup: 'Receita Operacional' } },
-      select: { year: true, month: true, amount: true },
+      where: { year: prevStart.getUTCFullYear(), month: prevStart.getUTCMonth() + 1, account: { dreGroup: 'Receita Operacional' } },
+      select: { amount: true },
     }),
   ])
 
   const metaCmvPct = settings.find(s => s.key === 'metaCmvPct')?.value ?? 0.70
 
-  // receita de referência = último mês da DRE (Receita Operacional)
-  const recByMonth = new Map<string, number>()
-  receitaRows.forEach(r => { const k = `${r.year}-${String(r.month).padStart(2, '0')}`; recByMonth.set(k, (recByMonth.get(k) ?? 0) + Math.abs(r.amount)) })
-  const recYm = Array.from(recByMonth.keys()).sort().pop() ?? null
-  const receitaRef = recYm ? recByMonth.get(recYm)! : 0
+  // receita de referência = Receita Operacional do mês anterior (último mês fechado)
+  const receitaRef = receitaRows.reduce((s, r) => s + Math.abs(r.amount), 0)
   const limiteCmvMensal = receitaRef * metaCmvPct
-
-  // mês de referência = mês corrente (servidor, UTC)
-  const now = new Date()
-  const curStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-  const refYm = ymKey(curStart)
 
   // ── Resumo por comprador (comprado NO MÊS pela data do pedido) ──
   const compradoNoMes = new Map<string, number>()
