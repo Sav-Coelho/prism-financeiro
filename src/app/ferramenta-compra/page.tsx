@@ -1,7 +1,7 @@
 'use client'
 import { useMemo, useRef, useState } from 'react'
 import Shell from '@/components/Shell'
-import { parseVendas, analyze, exportXlsx, type AnalysisRow, type AnalysisSummary, type Situacao } from '@/lib/compra-rede'
+import { parseVendas, analyze, LOJAS, type SkuRow, type AnalysisRow, type AnalysisSummary, type Situacao, type LojaKey } from '@/lib/compra-rede'
 
 const fmt = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 const fmtInt = (v: number | null) => v == null ? '—' : new Intl.NumberFormat('pt-BR').format(Math.round(v))
@@ -9,30 +9,33 @@ const fmt1 = (v: number | null) => v == null ? '—' : v.toLocaleString('pt-BR',
 
 const SIT_COLOR: Record<Situacao, string> = {
   'COMPRAR - URGENTE': '#c0392b',
+  'SUMIU DA PRATELEIRA': '#c98a14',
   'COMPRAR': '#b58b00',
   'OK': '#1a7a4a',
   'SOBRANDO': '#2b6cb0',
   'PARADO': '#8d99ae',
   'ERRO DE CADASTRO': '#7c3aed',
+  'ESTOQUE NÃO INFORMADO': '#8d99ae',
 }
 const CONF_COLOR: Record<string, string> = {
   'ESTÁVEL': '#1a7a4a', 'IRREGULAR': '#b58b00', 'MUITO IRREGULAR': '#c0392b', 'ESPORÁDICO': '#8d99ae',
 }
-
-const SITUACOES: Situacao[] = ['COMPRAR - URGENTE', 'COMPRAR', 'OK', 'SOBRANDO', 'PARADO', 'ERRO DE CADASTRO']
+const SITUACOES: Situacao[] = ['COMPRAR - URGENTE', 'SUMIU DA PRATELEIRA', 'COMPRAR', 'SOBRANDO', 'PARADO', 'OK', 'ERRO DE CADASTRO', 'ESTOQUE NÃO INFORMADO']
 const MAX_LINHAS = 400
 
 export default function FerramentaCompra() {
   const [analysis, setAnalysis] = useState<{ rows: AnalysisRow[]; summary: AnalysisSummary } | null>(null)
   const [diasAlvo, setDiasAlvo] = useState(10)
+  const [store, setStore] = useState<LojaKey>('matriz')
   const [fileLabel, setFileLabel] = useState('')
   const [parsing, setParsing] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [drag, setDrag] = useState(false)
   const [toast, setToast] = useState('')
   const [warnings, setWarnings] = useState<string[]>([])
   const [filtro, setFiltro] = useState<'todos' | Situacao>('todos')
   const [busca, setBusca] = useState('')
-  const rawRef = useRef<ReturnType<typeof parseVendas>['rows'] | null>(null)
+  const rawRef = useRef<SkuRow[] | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(''), 4000) }
@@ -45,23 +48,37 @@ export default function FerramentaCompra() {
       rawRef.current = res.rows
       setWarnings(res.warnings)
       setFileLabel(file.name.replace(/\.(xlsx|xls|csv)$/i, ''))
-      if (res.rows.length === 0) {
-        setAnalysis(null)
-        showToast('Nenhum produto reconhecido no arquivo.')
-      } else {
-        setAnalysis(analyze(res.rows, diasAlvo))
-        showToast(`✓ ${res.totalProdutos} produtos analisados`)
-      }
+      if (res.rows.length === 0) { setAnalysis(null); showToast('Nenhum produto reconhecido no arquivo.') }
+      else { setAnalysis(analyze(res.rows, diasAlvo)); showToast(`✓ ${res.totalProdutos} produtos analisados`) }
     } catch {
       showToast('Erro ao ler o arquivo. Envie o relatório em .xlsx.')
     }
     setParsing(false)
   }
 
-  // Recalcula ao mudar os dias-alvo (sem reparsear)
   const setDias = (d: number) => {
     setDiasAlvo(d)
     if (rawRef.current) setAnalysis(analyze(rawRef.current, d))
+  }
+
+  const exportar = async () => {
+    if (!analysis) return
+    setExporting(true)
+    try {
+      const res = await fetch('/api/compra/export', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ store, diasAlvo, rows: analysis.rows }),
+      })
+      if (!res.ok) { showToast('Erro ao gerar o Excel'); setExporting(false); return }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Ferramenta_Compra_${LOJAS.find(l => l.key === store)?.tab ?? store}.xlsx`
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+    } catch { showToast('Erro ao gerar o Excel') }
+    setExporting(false)
   }
 
   const filtered = useMemo(() => {
@@ -82,15 +99,23 @@ export default function FerramentaCompra() {
           <div className="page-eyebrow">Módulo · Suprimentos</div>
           <h1 className="page-title">Sugestão de Compra por Item</h1>
           <p className="page-subtitle">
-            Suba o relatório de vendas (&quot;Vários Períodos&quot;) e a ferramenta calcula, por produto,
-            <b> quanto comprar</b> para cobrir os dias de estoque que você quer — e exporta em Excel.
+            Suba o relatório de vendas (&quot;Vários Períodos&quot;) de uma loja e a ferramenta calcula, por produto,
+            <b> quanto comprar</b> — e exporta o arquivo Excel completo (7 abas), igual ao modelo.
           </p>
         </div>
-        {analysis && (
-          <button className="btn btn-primary" onClick={() => exportXlsx(analysis.rows, analysis.summary, diasAlvo, fileLabel)}>
-            ⬇ Exportar Excel
-          </button>
-        )}
+        <div className="flex gap-2" style={{ alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <div>
+            <label style={{ fontSize: 10, color: 'var(--brave-gray)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Loja deste relatório</label>
+            <select className="form-select" style={{ width: 160 }} value={store} onChange={e => setStore(e.target.value as LojaKey)}>
+              {LOJAS.map(l => <option key={l.key} value={l.key}>{l.tab}</option>)}
+            </select>
+          </div>
+          {analysis && (
+            <button className="btn btn-primary" onClick={exportar} disabled={exporting}>
+              {exporting ? 'Gerando...' : '⬇ Exportar Excel (7 abas)'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Upload */}
@@ -104,10 +129,10 @@ export default function FerramentaCompra() {
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
           onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
         <div className="upload-icon">{parsing ? '⏳' : '🧮'}</div>
-        <div className="upload-title">{parsing ? 'Lendo relatório...' : 'Importar relatório de vendas (Vários Períodos)'}</div>
+        <div className="upload-title">{parsing ? 'Lendo relatório...' : `Importar relatório da loja "${LOJAS.find(l => l.key === store)?.tab}"`}</div>
         <div className="upload-sub">
-          Clique ou arraste o arquivo <strong>.xlsx</strong> de uma loja. Nada é salvo no sistema — a análise
-          é gerada na hora e você exporta em Excel.
+          Clique ou arraste o arquivo <strong>.xlsx</strong> (&quot;Vendas - Vários Períodos&quot;). Nada é salvo no sistema — a
+          análise é gerada na hora e o Excel exportado sai idêntico ao modelo, com a loja selecionada preenchida.
         </div>
       </div>
 
@@ -122,12 +147,11 @@ export default function FerramentaCompra() {
           <div style={{ fontSize: 36, marginBottom: 12 }}>📦</div>
           <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 15 }}>Nenhum relatório carregado</div>
           <div style={{ color: 'var(--brave-gray)', fontSize: 13, marginTop: 6 }}>
-            Suba o relatório &quot;Vendas - Vários Períodos&quot; de uma loja para gerar a análise.
+            Escolha a loja acima e suba o relatório &quot;Vendas - Vários Períodos&quot; para gerar a análise.
           </div>
         </div>
       ) : (
         <>
-          {/* Parâmetro global de dias-alvo */}
           <div className="card mb-6" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
             <div>
               <div className="card-eyebrow">Parâmetro</div>
@@ -137,23 +161,21 @@ export default function FerramentaCompra() {
               onChange={e => setDias(Math.max(1, parseInt(e.target.value) || 1))}
               className="form-input" style={{ width: 90 }} />
             <span style={{ fontSize: 12, color: 'var(--brave-gray)', maxWidth: 460, lineHeight: 1.5 }}>
-              Aplicado a todos os itens. A quantidade a comprar é consequência: <b>estoque ideal = venda/dia × dias</b>.
-              (Alvo por categoria exige o Relatório de Entrada — pode vir depois.)
+              Aplicado a todos os itens (a aba &quot;Dias de Estoque&quot; do Excel permite ajustar por categoria depois).
+              A quantidade a comprar é consequência: <b>estoque ideal = venda/dia × dias</b>.
             </span>
           </div>
 
-          {/* KPIs */}
           <div className="metrics-grid mb-6" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
             <div className="metric-card"><div className="metric-label">Produtos</div><div className="metric-value" style={{ fontSize: 18 }}>{fmtInt(s!.totalSkus)}</div></div>
-            <div className="metric-card"><div className="metric-accent" style={{ background: '#c0392b' }} /><div className="metric-label">Comprar urgente</div><div className="metric-value" style={{ fontSize: 18, color: '#c0392b' }}>{fmtInt(s!.comprarUrgente)}</div><div style={{ fontSize: 11, color: 'var(--brave-gray)', marginTop: 2 }}>estoque zerado c/ demanda</div></div>
+            <div className="metric-card"><div className="metric-accent" style={{ background: '#c0392b' }} /><div className="metric-label">Comprar urgente</div><div className="metric-value" style={{ fontSize: 18, color: '#c0392b' }}>{fmtInt(s!.comprarUrgente)}</div><div style={{ fontSize: 11, color: 'var(--brave-gray)', marginTop: 2 }}>zerado e vendendo</div></div>
+            <div className="metric-card"><div className="metric-accent" style={{ background: '#c98a14' }} /><div className="metric-label">Sumiu da prateleira</div><div className="metric-value" style={{ fontSize: 18, color: '#c98a14' }}>{fmtInt(s!.sumiu)}</div><div style={{ fontSize: 11, color: 'var(--brave-gray)', marginTop: 2 }}>zerado, sem venda recente</div></div>
             <div className="metric-card"><div className="metric-accent" style={{ background: '#b58b00' }} /><div className="metric-label">Comprar</div><div className="metric-value" style={{ fontSize: 18, color: '#b58b00' }}>{fmtInt(s!.comprar)}</div></div>
-            <div className="metric-card"><div className="metric-accent" style={{ background: '#2b6cb0' }} /><div className="metric-label">Parado + sobrando</div><div className="metric-value" style={{ fontSize: 18, color: '#2b6cb0' }}>{fmtInt(s!.parados + s!.sobrando)}</div></div>
-            <div className="metric-card"><div className="metric-label">A comprar (unidades)</div><div className="metric-value" style={{ fontSize: 18 }}>{fmtInt(s!.totalComprarUn)}</div>{s!.negativos > 0 && <div style={{ fontSize: 11, color: '#c0392b', marginTop: 2 }}>{s!.negativos} c/ estoque negativo</div>}</div>
+            <div className="metric-card"><div className="metric-label">A comprar (unidades)</div><div className="metric-value" style={{ fontSize: 18 }}>{fmtInt(s!.totalComprarUn)}</div>{(s!.negativos + s!.semEstoque) > 0 && <div style={{ fontSize: 11, color: '#c0392b', marginTop: 2 }}>{s!.negativos} negativo · {s!.semEstoque} sem estoque</div>}</div>
           </div>
 
-          {/* Filtros */}
           <div className="card mb-6" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <select className="form-select" style={{ width: 200 }} value={filtro} onChange={e => setFiltro(e.target.value as 'todos' | Situacao)}>
+            <select className="form-select" style={{ width: 220 }} value={filtro} onChange={e => setFiltro(e.target.value as 'todos' | Situacao)}>
               <option value="todos">Todas as situações</option>
               {SITUACOES.map(sit => <option key={sit} value={sit}>{sit}</option>)}
             </select>
@@ -163,25 +185,17 @@ export default function FerramentaCompra() {
             </span>
           </div>
 
-          {/* Tabela */}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <div className="table-wrap" style={{ maxHeight: '65vh' }}>
               <table>
                 <thead style={{ position: 'sticky', top: 0, background: 'var(--brave-white)' }}>
                   <tr>
-                    <th>Código</th>
-                    <th>Produto</th>
-                    <th style={{ textAlign: 'right' }}>jan–mar</th>
-                    <th style={{ textAlign: 'right' }}>abr–jun</th>
-                    <th style={{ textAlign: 'right' }}>Tend.</th>
-                    <th style={{ textAlign: 'right' }}>Sai/dia</th>
-                    <th style={{ textAlign: 'right' }}>Estoque</th>
-                    <th style={{ textAlign: 'right' }}>Dias</th>
-                    <th style={{ textAlign: 'right' }}>Ideal</th>
-                    <th style={{ textAlign: 'right' }}>COMPRAR</th>
-                    <th style={{ textAlign: 'right' }}>Fat. 6m</th>
-                    <th>Confiança</th>
-                    <th>Situação</th>
+                    <th>Código</th><th>Produto</th>
+                    <th style={{ textAlign: 'right' }}>jan–mar</th><th style={{ textAlign: 'right' }}>abr–jun</th>
+                    <th style={{ textAlign: 'right' }}>junho</th><th style={{ textAlign: 'right' }}>Tend.</th>
+                    <th style={{ textAlign: 'right' }}>Sai/dia</th><th style={{ textAlign: 'right' }}>Estoque</th>
+                    <th style={{ textAlign: 'right' }}>Dias</th><th style={{ textAlign: 'right' }}>Ideal</th>
+                    <th style={{ textAlign: 'right' }}>COMPRAR</th><th>Confiança</th><th>Situação</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -191,13 +205,13 @@ export default function FerramentaCompra() {
                       <td style={{ fontSize: 12, maxWidth: 260 }}>{r.nome || '—'}</td>
                       <td style={{ textAlign: 'right', fontSize: 12 }}>{fmt1(r.p3)}</td>
                       <td style={{ textAlign: 'right', fontSize: 12 }}>{fmt1(r.u3)}</td>
+                      <td style={{ textAlign: 'right', fontSize: 12 }}>{fmt1(r.junho)}</td>
                       <td style={{ textAlign: 'right', fontSize: 12, color: r.tendencia != null && r.tendencia >= 1 ? '#1a7a4a' : '#c0392b' }}>{r.tendencia == null ? '—' : `${fmt1(r.tendencia)}×`}</td>
                       <td style={{ textAlign: 'right', fontSize: 12 }}>{fmt1(r.saiDia)}</td>
-                      <td style={{ textAlign: 'right', fontSize: 12, color: r.estoque < 0 ? '#c0392b' : undefined }}>{fmtInt(r.estoque)}</td>
+                      <td style={{ textAlign: 'right', fontSize: 12, color: r.estoque != null && r.estoque < 0 ? '#c0392b' : undefined }}>{r.estoque == null ? '—' : fmtInt(r.estoque)}</td>
                       <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--brave-gray)' }}>{r.diasEstoque == null ? '—' : fmtInt(r.diasEstoque)}</td>
                       <td style={{ textAlign: 'right', fontSize: 12 }}>{fmtInt(r.estoqueIdeal)}</td>
                       <td style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: (r.comprar ?? 0) > 0 ? '#c0392b' : 'var(--brave-gray)' }}>{r.comprar == null ? '—' : fmtInt(r.comprar)}</td>
-                      <td style={{ textAlign: 'right', fontSize: 11, color: 'var(--brave-gray)' }}>{fmt(r.faturamento6)}</td>
                       <td><span style={{ fontSize: 10, fontWeight: 600, color: CONF_COLOR[r.confianca] }}>{r.confianca}</span></td>
                       <td><span style={{ fontSize: 10, fontWeight: 700, color: SIT_COLOR[r.situacao] }}>{r.situacao}</span></td>
                     </tr>

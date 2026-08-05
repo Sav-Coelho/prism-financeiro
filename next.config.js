@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: { serverComponentsExternalPackages: ['@prisma/client', 'prisma', 'pdf-parse'] },
+  experimental: { serverComponentsExternalPackages: ['@prisma/client', 'prisma', 'pdf-parse', 'exceljs'] },
   webpack: (config) => {
     // pdf-parse tries to require 'canvas' in test utils — alias to false to prevent error
     config.resolve.alias = { ...config.resolve.alias, canvas: false }
