@@ -51,6 +51,39 @@ function situacaoFormula(r: number): string {
   return `IF(J${r}="","ESTOQUE NÃO INFORMADO",IF(J${r}<0,"ERRO DE CADASTRO",IF(I${r}=0,"PARADO",IF(AND(J${r}<=0,F${r}>0),"COMPRAR - URGENTE",IF(J${r}<=0,"SUMIU DA PRATELEIRA",IF(N${r}>0,"COMPRAR",IF(K${r}>L${r}*3,"SOBRANDO","OK")))))))`
 }
 
+// Resultados pré-calculados de cada linha — espelham EXATAMENTE o que as fórmulas
+// da planilha produzem ao recalcular (a partir dos valores arredondados das células).
+// Sem eles o Excel abre as colunas de fórmula em branco (não há valor cacheado e o
+// Modo Protegido não recalcula).
+interface RowCalc {
+  G: number | string; I: number; K: number | string; L: number
+  M: number; N: number | string; P: number | string; R: string
+}
+const round2 = (n: number) => Math.round(n * 100) / 100
+function calcRow(r: Row, diasAlvo: number): RowCalc {
+  const D = Math.round(r.p3 * 10) / 10
+  const E = Math.round(r.u3 * 10) / 10
+  const F = Math.round(r.junho * 10) / 10
+  const J = r.estoque // null = célula em branco ("" nas fórmulas)
+  const G = D === 0 ? '' : round2(E / D)
+  const I = round2((E + 0) / 30.4)
+  const L = diasAlvo // Categoria em branco → MATCH falha → IFERROR devolve o padrão
+  const K = (J == null || I <= 0) ? '' : (J <= 0 ? 0 : Math.round(J / I))
+  const M = Math.round(I * L)
+  const N = (J == null || J < 0) ? '' : Math.max(0, Math.round(M - J))
+  const P = N === '' ? '' : 0 // Custo (O) em branco → N*0 = 0
+  let R: string
+  if (J == null) R = 'ESTOQUE NÃO INFORMADO'
+  else if (J < 0) R = 'ERRO DE CADASTRO'
+  else if (I === 0) R = 'PARADO'
+  else if (J <= 0 && F > 0) R = 'COMPRAR - URGENTE'
+  else if (J <= 0) R = 'SUMIU DA PRATELEIRA'
+  else if (typeof N === 'number' && N > 0) R = 'COMPRAR'
+  else if (typeof K === 'number' && K > L * 3) R = 'SOBRANDO'
+  else R = 'OK'
+  return { G, I, K, L, M, N, P, R }
+}
+
 function buildDiasEstoque(ws: ExcelJS.Worksheet) {
   title(ws.getCell('A1'), 'PASSO 1 — QUANTOS DIAS DE ESTOQUE VOCÊ QUER DE CADA CATEGORIA?')
   warn(ws.getCell('A2'), 'Esta é a ÚNICA aba que você edita. Mude só os números (células amarelas).')
@@ -85,45 +118,53 @@ function buildStore(ws: ExcelJS.Worksheet, meta: StoreMeta, rows: Row[] | null, 
   const miniHdr = ['COMPRAR - URGENTE', 'COMPRAR', 'SUMIU DA PRATELEIRA', 'ESTOQUE NÃO INFORMADO', 'ERRO DE CADASTRO', 'OK', 'SOBRANDO', 'PARADO']
   miniHdr.forEach((t, i) => hdr(ws.getCell(resHdr, i + 1), t))
   hdr(ws.getCell(resHdr, 10), 'Valor em estoque (R$)')
-  miniHdr.forEach((sName, i) => { ws.getCell(resVal, i + 1).value = { formula: `COUNTIF(${Rr},"${sName}")` } })
-  ws.getCell(resVal, 10).value = { formula: `SUMPRODUCT(MAX(0,1)*IF(N(${Jr})>0,N(${Jr})*N(${Or}),0))` }
+  // (os valores do mini-resumo são escritos após o loop de dados, com o result embutido)
 
   body(ws.getCell(headerRow - 1, 1), 'A lista está ordenada: o que exige ação e dinheiro vem primeiro.')
 
   const cols = ['Código', 'Produto', 'Categoria', `Vendeu por mês\n(${periodo.p3})`, `Vendeu por mês\n(${periodo.u3})`, `Vendeu em\n${periodo.recente}`, 'Tendência', 'Transferiu p/\nlojas/mês', 'Sai por dia\n(un)', 'Estoque hoje\n(un)', 'Dias de\nestoque', 'Dias que\nvocê quer', 'Estoque ideal\n(un)', 'COMPRAR\n(un)', 'Custo un.\n(R$)', 'Valor da\ncompra (R$)', 'Confiança', 'Situação']
   cols.forEach((t, i) => hdr(ws.getCell(headerRow, i + 1), t))
 
+  const counts: Record<string, number> = {}
   ;(rows ?? []).forEach((r, idx) => {
     const rr = dataStart + idx
+    const cc = calcRow(r, diasAlvo)
+    counts[cc.R] = (counts[cc.R] ?? 0) + 1
     ws.getCell(rr, 1).value = r.cod
     ws.getCell(rr, 2).value = r.nome
     ws.getCell(rr, 4).value = round1(r.p3)
     ws.getCell(rr, 5).value = round1(r.u3)
     ws.getCell(rr, 6).value = round1(r.junho)
-    ws.getCell(rr, 7).value = { formula: `IF(D${rr}=0,"",ROUND(E${rr}/D${rr},2))` }
+    ws.getCell(rr, 7).value = { formula: `IF(D${rr}=0,"",ROUND(E${rr}/D${rr},2))`, result: cc.G }
     ws.getCell(rr, 8).value = 0
-    ws.getCell(rr, 9).value = { formula: `ROUND((E${rr}+H${rr})/30.4,2)` }
+    ws.getCell(rr, 9).value = { formula: `ROUND((E${rr}+H${rr})/30.4,2)`, result: cc.I }
     if (r.estoque != null) ws.getCell(rr, 10).value = r.estoque
-    ws.getCell(rr, 11).value = { formula: `IF(OR(J${rr}="",I${rr}<=0),"",IF(J${rr}<=0,0,ROUND(J${rr}/I${rr},0)))` }
-    ws.getCell(rr, 12).value = { formula: `IFERROR(INDEX('Dias de Estoque'!$${meta.diasCol}$6:$${meta.diasCol}$23,MATCH(C${rr},'Dias de Estoque'!$A$6:$A$23,0)),${diasAlvo})` }
-    ws.getCell(rr, 13).value = { formula: `ROUND(I${rr}*L${rr},0)` }
-    ws.getCell(rr, 14).value = { formula: `IF(OR(J${rr}="",J${rr}<0),"",MAX(0,ROUND(M${rr}-J${rr},0)))` }
-    ws.getCell(rr, 16).value = { formula: `IFERROR(N${rr}*O${rr},"")` }
+    ws.getCell(rr, 11).value = { formula: `IF(OR(J${rr}="",I${rr}<=0),"",IF(J${rr}<=0,0,ROUND(J${rr}/I${rr},0)))`, result: cc.K }
+    ws.getCell(rr, 12).value = { formula: `IFERROR(INDEX('Dias de Estoque'!$${meta.diasCol}$6:$${meta.diasCol}$23,MATCH(C${rr},'Dias de Estoque'!$A$6:$A$23,0)),${diasAlvo})`, result: cc.L }
+    ws.getCell(rr, 13).value = { formula: `ROUND(I${rr}*L${rr},0)`, result: cc.M }
+    ws.getCell(rr, 14).value = { formula: `IF(OR(J${rr}="",J${rr}<0),"",MAX(0,ROUND(M${rr}-J${rr},0)))`, result: cc.N }
+    ws.getCell(rr, 16).value = { formula: `IFERROR(N${rr}*O${rr},"")`, result: cc.P }
     ws.getCell(rr, 17).value = r.confianca
-    ws.getCell(rr, 18).value = { formula: situacaoFormula(rr) }
+    ws.getCell(rr, 18).value = { formula: situacaoFormula(rr), result: cc.R }
     for (let c = 1; c <= 18; c++) ws.getCell(rr, c).font = { ...ARIAL }
     ;[4, 5, 6, 9].forEach(c => ws.getCell(rr, c).numFmt = '#,##0.0')
     ;[10, 13, 14].forEach(c => ws.getCell(rr, c).numFmt = '#,##0')
   })
+
+  // Mini-resumo com fórmula + result (contagens pré-calculadas das situações)
+  miniHdr.forEach((sName, i) => { ws.getCell(resVal, i + 1).value = { formula: `COUNTIF(${Rr},"${sName}")`, result: counts[sName] ?? 0 }; ws.getCell(resVal, i + 1).font = { ...ARIAL } })
+  ws.getCell(resVal, 10).value = { formula: `SUMPRODUCT(MAX(0,1)*IF(N(${Jr})>0,N(${Jr})*N(${Or}),0))`, result: 0 }
+  ws.getCell(resVal, 10).font = { ...ARIAL }
 
   ws.getColumn(1).width = 10
   ws.getColumn(2).width = 34
   for (let c = 3; c <= 18; c++) ws.getColumn(c).width = 11
   ws.views = [{ state: 'frozen', xSplit: 2, ySplit: headerRow }]
   ws.autoFilter = { from: { row: headerRow, column: 1 }, to: { row: Math.max(headerRow, le), column: 18 } }
+  return counts
 }
 
-function buildResumo(ws: ExcelJS.Worksheet, ranges: { ds: number; le: number }[], fatGrowth: (({ fat: number; growth: number }) | null)[], periodo: Periodo) {
+function buildResumo(ws: ExcelJS.Worksheet, ranges: { ds: number; le: number }[], fatGrowth: (({ fat: number; growth: number }) | null)[], periodo: Periodo, stats: { n: number; counts: Record<string, number> }[]) {
   title(ws.getCell('A1'), 'RESUMO DA REDE — TODAS AS LOJAS')
   body(ws.getCell('A2'), `Calculado a partir das abas de cada loja (${periodo.janela || 'período do relatório'}). Nada é digitado aqui.`)
   const heads = ['Loja', 'Produtos', 'Faturamento\n(período)', 'Cresceu\n(1º→últ. tri)', 'Estoque hoje\n(R$)', 'FALTA DE VERDADE\n(comprar urgente)', 'Sumiu da\nprateleira', 'Estoque não\ninformado', 'Sobrando +\nParado (R$)', 'Compra sugerida\n(R$)', 'Estoque\nnegativo']
@@ -133,22 +174,31 @@ function buildResumo(ws: ExcelJS.Worksheet, ranges: { ds: number; le: number }[]
     const r = 5 + i
     const { ds, le } = ranges[i]
     const R = `${s.tab}!$R$${ds}:$R$${le}`, J = `${s.tab}!$J$${ds}:$J$${le}`, O = `${s.tab}!$O$${ds}:$O$${le}`
+    const st = stats[i]
+    const cnt = (nm: string) => st.counts[nm] ?? 0
     body(ws.getCell(r, 1), s.nome)
-    ws.getCell(r, 2).value = { formula: `COUNTA(${s.tab}!$A$${ds}:$A$${le})` }
+    ws.getCell(r, 2).value = { formula: `COUNTA(${s.tab}!$A$${ds}:$A$${le})`, result: st.n }
     const fg = fatGrowth[i]
     if (fg) { body(ws.getCell(r, 3), Math.round(fg.fat * 100) / 100); ws.getCell(r, 4).value = fg.growth; ws.getCell(r, 4).numFmt = '0.0%' }
-    ws.getCell(r, 5).value = { formula: `SUMPRODUCT(MAX(0,1)*IF(N(${J})>0,N(${J})*N(${O}),0))` }
-    ws.getCell(r, 6).value = { formula: `COUNTIF(${R},"COMPRAR - URGENTE")` }
-    ws.getCell(r, 7).value = { formula: `COUNTIF(${R},"SUMIU DA PRATELEIRA")` }
-    ws.getCell(r, 8).value = { formula: `COUNTIF(${R},"ESTOQUE NÃO INFORMADO")` }
-    ws.getCell(r, 9).value = { formula: `SUMPRODUCT((${R}="SOBRANDO")+(${R}="PARADO"),IF(N(${J})>0,N(${J}),0)*N(${O}))` }
-    ws.getCell(r, 10).value = { formula: `SUM(${s.tab}!$P$${ds}:$P$${le})` }
-    ws.getCell(r, 11).value = { formula: `COUNTIF(${R},"ERRO DE CADASTRO")` }
+    ws.getCell(r, 5).value = { formula: `SUMPRODUCT(MAX(0,1)*IF(N(${J})>0,N(${J})*N(${O}),0))`, result: 0 }
+    ws.getCell(r, 6).value = { formula: `COUNTIF(${R},"COMPRAR - URGENTE")`, result: cnt('COMPRAR - URGENTE') }
+    ws.getCell(r, 7).value = { formula: `COUNTIF(${R},"SUMIU DA PRATELEIRA")`, result: cnt('SUMIU DA PRATELEIRA') }
+    ws.getCell(r, 8).value = { formula: `COUNTIF(${R},"ESTOQUE NÃO INFORMADO")`, result: cnt('ESTOQUE NÃO INFORMADO') }
+    ws.getCell(r, 9).value = { formula: `SUMPRODUCT((${R}="SOBRANDO")+(${R}="PARADO"),IF(N(${J})>0,N(${J}),0)*N(${O}))`, result: 0 }
+    ws.getCell(r, 10).value = { formula: `SUM(${s.tab}!$P$${ds}:$P$${le})`, result: 0 }
+    ws.getCell(r, 11).value = { formula: `COUNTIF(${R},"ERRO DE CADASTRO")`, result: cnt('ERRO DE CADASTRO') }
     for (let c = 1; c <= 11; c++) if (!ws.getCell(r, c).font) ws.getCell(r, c).font = { ...ARIAL }
   })
   const rr = 10
+  const totN = stats.reduce((a, s) => a + s.n, 0)
+  const totC = (nm: string) => stats.reduce((a, s) => a + (s.counts[nm] ?? 0), 0)
+  const redeResult: Record<string, number> = {
+    B: totN, C: fatGrowth.reduce((a, f) => a + (f ? Math.round(f.fat * 100) / 100 : 0), 0), E: 0,
+    F: totC('COMPRAR - URGENTE'), G: totC('SUMIU DA PRATELEIRA'), H: totC('ESTOQUE NÃO INFORMADO'),
+    I: 0, J: 0, K: totC('ERRO DE CADASTRO'),
+  }
   body(ws.getCell(rr, 1), 'REDE'); ws.getCell(rr, 1).font = { ...ARIAL, bold: true }
-  ;['B', 'C', 'E', 'F', 'G', 'H', 'I', 'J', 'K'].forEach(col => { ws.getCell(`${col}${rr}`).value = { formula: `SUM(${col}5:${col}9)` }; ws.getCell(`${col}${rr}`).font = { ...ARIAL, bold: true } })
+  ;['B', 'C', 'E', 'F', 'G', 'H', 'I', 'J', 'K'].forEach(col => { ws.getCell(`${col}${rr}`).value = { formula: `SUM(${col}5:${col}9)`, result: redeResult[col] }; ws.getCell(`${col}${rr}`).font = { ...ARIAL, bold: true } })
 
   body(ws.getCell('A13'), 'A LEITURA DA TABELA:'); ws.getCell('A13').font = { ...ARIAL, bold: true }
   body(ws.getCell('B14'), '"Comprar urgente" = estoque zerado e ainda vendendo. É a falta que custa venda.')
@@ -187,7 +237,11 @@ export async function POST(req: NextRequest) {
     return { ds, le: n > 0 ? ds + n - 1 : ds }
   })
 
-  STORES.forEach((s, i) => buildStore(sheets[i], s, provided.get(s.key) ?? null, diasAlvo, periodo))
+  const stats = STORES.map((s, i) => {
+    const rows = provided.get(s.key) ?? null
+    const counts = buildStore(sheets[i], s, rows, diasAlvo, periodo)
+    return { n: rows?.length ?? 0, counts }
+  })
 
   const fatGrowth = STORES.map(s => {
     const rows = provided.get(s.key)
@@ -195,7 +249,7 @@ export async function POST(req: NextRequest) {
     const p3 = rows.reduce((a, r) => a + r.p3, 0), u3 = rows.reduce((a, r) => a + r.u3, 0)
     return { fat: rows.reduce((a, r) => a + r.faturamento6, 0), growth: p3 > 0 ? (u3 - p3) / p3 : 0 }
   })
-  buildResumo(resumo, ranges, fatGrowth, periodo)
+  buildResumo(resumo, ranges, fatGrowth, periodo, stats)
 
   const buf = await wb.xlsx.writeBuffer()
   return new NextResponse(buf, {
