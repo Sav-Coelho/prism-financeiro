@@ -28,10 +28,44 @@ export interface SkuRow {
   v: number[]            // [jan..jun] — valores (R$)
 }
 
+const MES_ABBR = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+const MES_FULL = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+
+// Rótulos de coluna derivados da janela real do relatório (ex.: mar–ago/26).
+export interface Periodo {
+  p3: string        // ex.: "mar-abr-mai"
+  u3: string        // ex.: "jun-jul-ago"
+  recente: string   // nome do mês mais recente, ex.: "agosto"
+  recenteAbbr: string
+  janela: string    // ex.: "mar–ago/26"
+}
+
+function extractPeriodo(rows: unknown[][]): Periodo {
+  const fb: Periodo = { p3: '1º trimestre', u3: 'trimestre recente', recente: 'mês recente', recenteAbbr: 'recente', janela: '' }
+  for (let r = 0; r < Math.min(14, rows.length); r++) {
+    const row = rows[r] || []
+    const cells = [9, 10, 11, 12, 13, 14].map(c => row[c])
+    if (cells.every(x => typeof x === 'string' && /\d{2}\/\d{2}\/\d{2}/.test(x as string))) {
+      // colunas 9..14 = mais recente → mais antigo; cronológico = reverso
+      const meses = cells.map(x => { const m = String(x).match(/\d{2}\/(\d{2})\/(\d{2})/)!; return { mes: parseInt(m[1], 10), ano: m[2] } }).reverse()
+      const ab = meses.map(m => MES_ABBR[m.mes - 1] ?? '?')
+      return {
+        p3: ab.slice(0, 3).join('-'),
+        u3: ab.slice(3, 6).join('-'),
+        recente: MES_FULL[meses[5].mes - 1] ?? 'mês recente',
+        recenteAbbr: ab[5],
+        janela: `${ab[0]}–${ab[5]}/${meses[5].ano}`,
+      }
+    }
+  }
+  return fb
+}
+
 export interface ParseResult {
   rows: SkuRow[]
   warnings: string[]
   totalProdutos: number
+  periodo: Periodo
 }
 
 const toNum = (x: unknown): number => {
@@ -117,7 +151,7 @@ export function parseVendas(data: ArrayBuffer): ParseResult {
   const dup = recs.length - filtered.length
   if (dup > 0) warnings.push(`${dup} linha(s) de cabeçalho de quebra de página ignorada(s).`)
 
-  return { rows: out, warnings, totalProdutos: out.length }
+  return { rows: out, warnings, totalProdutos: out.length, periodo: extractPeriodo(rows) }
 }
 
 // ─────────────────────────── Análise ───────────────────────────
