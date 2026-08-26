@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Shell from '@/components/Shell'
 import { parseVendas, analyze, packRows, LOJAS, type SkuRow, type Periodo, type Situacao, type LojaKey } from '@/lib/compra-rede'
 
@@ -15,7 +15,14 @@ const CONF_COLOR: Record<string, string> = { 'ESTÁVEL': '#1a7a4a', 'IRREGULAR':
 const SITUACOES: Situacao[] = ['COMPRAR - URGENTE', 'SUMIU DA PRATELEIRA', 'COMPRAR', 'SOBRANDO', 'PARADO', 'OK', 'ERRO DE CADASTRO', 'ESTOQUE NÃO INFORMADO']
 const MAX_LINHAS = 400
 
-type Loaded = { skus: SkuRow[]; periodo: Periodo; total: number }
+type Loaded = { skus: SkuRow[]; periodo: Periodo; total: number; importId?: number; fileName?: string | null; createdAt?: string }
+type HistRow = { id: number; loja: string; janela: string | null; fileName: string | null; produtos: number; active: boolean; createdAt: string }
+
+const fmtDataHora = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+const sha256hex = async (buf: ArrayBuffer) => {
+  const h = await crypto.subtle.digest('SHA-256', buf)
+  return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
 
 export default function FerramentaCompra() {
   const [loaded, setLoaded] = useState<Record<string, Loaded | null>>({})
@@ -26,15 +33,46 @@ export default function FerramentaCompra() {
   const [toast, setToast] = useState('')
   const [filtro, setFiltro] = useState<'todos' | Situacao>('todos')
   const [busca, setBusca] = useState('')
-  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(''), 5000) }
+  const [historico, setHistorico] = useState<HistRow[]>([])
+  const [carregando, setCarregando] = useState(true)
+  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(''), 6000) }
 
   // um input de arquivo por loja — sem estado compartilhado entre cartões
   const pickFile = (key: LojaKey) => { document.getElementById(`file-${key}`)?.click() }
 
+  const fetchHistorico = () =>
+    fetch('/api/compra/historico').then(r => r.json()).then(d => setHistorico(d.historico ?? [])).catch(() => {})
+
+  // Carrega os dados JÁ SALVOS ao abrir a página (o cliente não precisa re-subir nada)
+  useEffect(() => {
+    fetch('/api/compra/dados').then(r => r.json()).then(d => {
+      const next: Record<string, Loaded | null> = {}
+      for (const s of (d.stores ?? [])) {
+        const skus: SkuRow[] = (s.rows ?? []).map((r: [string, string, number | null, number[], number[]]) => ({
+          cod: String(r[0]), nome: String(r[1] ?? ''), estoque: r[2] == null ? null : Number(r[2]),
+          q: Array.isArray(r[3]) ? r[3].map(Number) : [0, 0, 0, 0, 0, 0],
+          v: Array.isArray(r[4]) ? r[4].map(Number) : [0, 0, 0, 0, 0, 0],
+        }))
+        next[s.loja] = {
+          skus, total: skus.length, importId: s.importId, fileName: s.fileName, createdAt: s.createdAt,
+          periodo: (s.periodo as Periodo) ?? { p3: '1º trimestre', u3: 'trimestre recente', recente: 'mês recente', recenteAbbr: 'recente', janela: s.janela ?? '' },
+        }
+      }
+      if (Object.keys(next).length > 0) {
+        setLoaded(prev => ({ ...next, ...prev }))
+        const first = LOJAS.find(l => next[l.key])
+        if (first) setViewKey(k => k ?? first.key)
+      }
+      setCarregando(false)
+    }).catch(() => setCarregando(false))
+    fetchHistorico()
+  }, [])
+
   const onFile = async (key: LojaKey, file: File) => {
     setBusyKey(key)
     try {
-      const res = parseVendas(await file.arrayBuffer())
+      const buf = await file.arrayBuffer()
+      const res = parseVendas(buf)
       if (res.rows.length === 0) { showToast('Nenhum produto reconhecido no arquivo.'); setBusyKey(null); return }
       // Trava anti-troca: o relatório declara a filial no cabeçalho — recusa se não for a loja deste cartão
       const alvo = LOJAS.find(l => l.key === key)!
@@ -45,13 +83,39 @@ export default function FerramentaCompra() {
           : `⚠ Este arquivo é da filial ${res.filial}, que não corresponde a "${alvo.tab}".`)
         setBusyKey(null); return
       }
-      setLoaded(prev => ({ ...prev, [key]: { skus: res.rows, periodo: res.periodo, total: res.totalProdutos } }))
+      // Salva no sistema (trava de duplicidade por hash do arquivo é feita no servidor)
+      const fileHash = await sha256hex(buf)
+      const resp = await fetch('/api/compra/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          loja: key, filial: res.filial, janela: res.periodo.janela, periodo: res.periodo,
+          fileName: file.name, fileHash,
+          rows: res.rows.map(r => [r.cod, r.nome, r.estoque, r.q, r.v]),
+        }),
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (resp.status === 409) { showToast(`⚠ ${data.error ?? 'Arquivo já importado antes.'}`); setBusyKey(null); return }
+      if (!resp.ok) { showToast(`Erro ao salvar: ${data.error ?? resp.status}`); setBusyKey(null); return }
+      setLoaded(prev => ({ ...prev, [key]: { skus: res.rows, periodo: res.periodo, total: res.totalProdutos, importId: data.importId, fileName: file.name, createdAt: data.createdAt } }))
       setViewKey(key)
-      showToast(`✓ ${LOJAS.find(l => l.key === key)?.tab}: ${res.totalProdutos} produtos (${res.periodo.janela || 'período do relatório'})`)
+      fetchHistorico()
+      showToast(`✓ ${alvo.tab}: ${res.totalProdutos} produtos importados e salvos (${res.periodo.janela || 'período do relatório'})`)
     } catch {
       showToast('Erro ao ler o arquivo. Envie o relatório em .xlsx.')
     }
     setBusyKey(null)
+  }
+
+  const removerImport = async (key: LojaKey) => {
+    const ld = loaded[key]
+    if (!ld?.importId) return
+    if (!confirm(`Remover os dados salvos da loja ${LOJAS.find(l => l.key === key)?.tab}?`)) return
+    const r = await fetch(`/api/compra/import/${ld.importId}`, { method: 'DELETE' })
+    if (!r.ok) { showToast('Erro ao remover'); return }
+    setLoaded(prev => ({ ...prev, [key]: null }))
+    setViewKey(k => (k === key ? null : k))
+    fetchHistorico()
+    showToast('Dados da loja removidos')
   }
 
   // análise por loja carregada (recalcula com diasAlvo)
@@ -140,11 +204,17 @@ export default function FerramentaCompra() {
                 <>
                   <div className="metric-value" style={{ fontSize: 17 }}>{fmtInt(ld.total)}</div>
                   <div style={{ fontSize: 10, color: 'var(--brave-gray)', marginTop: 2 }}>produtos · {ld.periodo.janela}</div>
+                  {ld.createdAt && (
+                    <div style={{ fontSize: 9, color: '#1a7a4a', marginTop: 2 }}>💾 salvo em {fmtDataHora(ld.createdAt)}</div>
+                  )}
                   <div style={{ fontSize: 10, marginTop: 4 }}>
                     <span style={{ color: '#c0392b', fontWeight: 600 }}>{an.summary.comprarUrgente} urgente</span>
                     {' · '}<span style={{ color: '#b58b00', fontWeight: 600 }}>{an.summary.comprar} comprar</span>
                   </div>
-                  <button className="btn btn-secondary btn-sm" style={{ marginTop: 8, fontSize: 11 }} onClick={e => { e.stopPropagation(); pickFile(l.key) }}>trocar arquivo</button>
+                  <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+                    <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={e => { e.stopPropagation(); pickFile(l.key) }}>trocar</button>
+                    <button className="btn btn-danger btn-sm" style={{ fontSize: 11 }} title="Remover dados salvos desta loja" onClick={e => { e.stopPropagation(); removerImport(l.key) }}>remover</button>
+                  </div>
                 </>
               ) : (
                 <>
@@ -160,10 +230,15 @@ export default function FerramentaCompra() {
       {loadedKeys.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: 60 }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>📦</div>
-          <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 15 }}>Nenhum relatório carregado</div>
-          <div style={{ color: 'var(--brave-gray)', fontSize: 13, marginTop: 6 }}>
-            Clique numa loja acima e suba o relatório &quot;Vendas - Vários Períodos&quot; dela. Você pode subir de 1 a 5 lojas.
+          <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 15 }}>
+            {carregando ? 'Carregando dados salvos...' : 'Nenhum relatório carregado'}
           </div>
+          {!carregando && (
+            <div style={{ color: 'var(--brave-gray)', fontSize: 13, marginTop: 6 }}>
+              Clique numa loja acima e suba o relatório &quot;Vendas - Vários Períodos&quot; dela. Os dados ficam
+              salvos no sistema — só é preciso subir de novo quando houver relatório novo.
+            </div>
+          )}
         </div>
       ) : detail && viewKey ? (
         <>
@@ -236,6 +311,42 @@ export default function FerramentaCompra() {
           </div>
         </>
       ) : null}
+
+      {/* Histórico de importações */}
+      {historico.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: 24 }}>
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--brave-light)' }}>
+            <div className="card-eyebrow">Histórico</div>
+            <div style={{ fontFamily: 'var(--font-sub)', fontWeight: 600, fontSize: 13 }}>Importações realizadas ({historico.length})</div>
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 280 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Quando</th><th>Loja</th><th>Arquivo</th><th>Período</th>
+                  <th style={{ textAlign: 'right' }}>Produtos</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historico.map(h => (
+                  <tr key={h.id} style={{ opacity: h.active ? 1 : 0.55 }}>
+                    <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDataHora(h.createdAt)}</td>
+                    <td style={{ fontSize: 12, fontWeight: 600 }}>{LOJAS.find(l => l.key === h.loja)?.tab ?? h.loja}</td>
+                    <td style={{ fontSize: 11, color: 'var(--brave-gray)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.fileName ?? '—'}</td>
+                    <td style={{ fontSize: 12 }}>{h.janela ?? '—'}</td>
+                    <td style={{ fontSize: 12, textAlign: 'right' }}>{fmtInt(h.produtos)}</td>
+                    <td>
+                      {h.active
+                        ? <span style={{ fontSize: 10, fontWeight: 700, color: '#1a7a4a', background: '#e8f5e9', borderRadius: 4, padding: '2px 8px' }}>ATIVO</span>
+                        : <span style={{ fontSize: 10, color: 'var(--brave-gray)', background: 'var(--brave-light)', borderRadius: 4, padding: '2px 8px' }}>substituído</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </Shell>

@@ -194,6 +194,39 @@ model PurchaseOrder {
   @@index([dataPedido])
 }
 
+// ── Sugestão de Compra por Item (relatórios "Vendas - Vários Períodos") ──
+// Histórico de importações. Um import ATIVO por loja carrega os CompraSku;
+// imports substituídos mantêm os metadados (histórico) sem os SKUs.
+model CompraImport {
+  id        Int         @id @default(autoincrement())
+  loja      String      // matriz | cicero | cipo | soure | fernanda
+  filial    Int?
+  janela    String?     // ex.: "mar–ago/26"
+  periodo   Json?       // Periodo completo (rótulos p3/u3/recente)
+  fileName  String?
+  fileHash  String?     // SHA-256 do arquivo — trava de duplicidade
+  produtos  Int         @default(0)
+  active    Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  skus      CompraSku[]
+
+  @@index([loja, active])
+  @@index([fileHash])
+}
+
+model CompraSku {
+  id       Int          @id @default(autoincrement())
+  importId Int
+  import   CompraImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  cod      String
+  nome     String
+  estoque  Float?
+  q        Json         // quantidades dos 6 meses (antigo → recente)
+  v        Json         // valores (R$) dos 6 meses
+
+  @@index([importId])
+}
+
 // Lista editável de categorias de compra.
 model PurchaseCategoria {
   id   Int    @id @default(autoincrement())
