@@ -267,6 +267,21 @@ export function analyze(rows: SkuRow[], diasAlvo: number): { rows: AnalysisRow[]
   return { rows: out, summary }
 }
 
+// ── Payload compacto para o export (limite de ~4,5 MB por request na Vercel) ──
+// Só o que o Excel precisa como DADO; todo o resto é fórmula recalculada.
+// [cod, nome, p3, u3, junho, estoque(null = em branco), confIdx, faturamento6]
+export type CompactRow = [string, string, number, number, number, number | null, number, number]
+export const CONF_LIST: Confianca[] = ['ESTÁVEL', 'IRREGULAR', 'MUITO IRREGULAR', 'ESPORÁDICO']
+
+const r1c = (n: number) => Math.round(n * 10) / 10
+export function packRows(rows: AnalysisRow[]): CompactRow[] {
+  return rows.map(r => [
+    r.cod, r.nome, r1c(r.p3), r1c(r.u3), r1c(r.junho),
+    r.estoque, Math.max(0, CONF_LIST.indexOf(r.confianca)),
+    Math.round(r.faturamento6 * 100) / 100,
+  ])
+}
+
 // Lojas do arquivo-alvo — a ordem/nome define a coluna na aba "Dias de Estoque"
 export const LOJAS = [
   { key: 'matriz', tab: 'Matriz', diasCol: 'B', titulo: 'MATRIZ / DISTRIBUIDORA (Pombal) — filial 1', aviso: true },

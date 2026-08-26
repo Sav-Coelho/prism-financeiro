@@ -1,7 +1,7 @@
 'use client'
 import { useMemo, useRef, useState } from 'react'
 import Shell from '@/components/Shell'
-import { parseVendas, analyze, LOJAS, type SkuRow, type Periodo, type AnalysisRow, type Situacao, type LojaKey } from '@/lib/compra-rede'
+import { parseVendas, analyze, packRows, LOJAS, type SkuRow, type Periodo, type Situacao, type LojaKey } from '@/lib/compra-rede'
 
 const fmtInt = (v: number | null) => v == null ? '—' : new Intl.NumberFormat('pt-BR').format(Math.round(v))
 const fmt1 = (v: number | null) => v == null ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -63,7 +63,8 @@ export default function FerramentaCompra() {
     if (loadedKeys.length === 0) return
     setExporting(true)
     try {
-      const stores = loadedKeys.map(k => ({ key: k, rows: analysisByStore[k].rows }))
+      // payload compacto — o corpo da request tem limite de ~4,5 MB na Vercel
+      const stores = loadedKeys.map(k => ({ key: k, rows: packRows(analysisByStore[k].rows) }))
       const res = await fetch('/api/compra/export', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ diasAlvo, periodo, stores }),

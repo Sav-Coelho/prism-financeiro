@@ -6,7 +6,15 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
-import type { AnalysisRow, Periodo } from '@/lib/compra-rede'
+import { CONF_LIST, type CompactRow, type Periodo } from '@/lib/compra-rede'
+
+// Linha reconstruída do payload compacto (só os campos que viram DADO no Excel)
+interface Row { cod: string; nome: string; p3: number; u3: number; junho: number; estoque: number | null; confianca: string; faturamento6: number }
+const unpack = (c: CompactRow): Row => ({
+  cod: String(c[0]), nome: String(c[1] ?? ''), p3: Number(c[2]) || 0, u3: Number(c[3]) || 0,
+  junho: Number(c[4]) || 0, estoque: c[5] == null ? null : Number(c[5]),
+  confianca: CONF_LIST[Number(c[6])] ?? 'IRREGULAR', faturamento6: Number(c[7]) || 0,
+})
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -59,7 +67,7 @@ function buildDiasEstoque(ws: ExcelJS.Worksheet) {
   ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 5 }]
 }
 
-function buildStore(ws: ExcelJS.Worksheet, meta: StoreMeta, rows: AnalysisRow[] | null, diasAlvo: number, periodo: Periodo) {
+function buildStore(ws: ExcelJS.Worksheet, meta: StoreMeta, rows: Row[] | null, diasAlvo: number, periodo: Periodo) {
   const aviso = !!meta.aviso
   const headerRow = aviso ? 10 : 9
   const dataStart = headerRow + 1
@@ -158,12 +166,12 @@ function buildResumo(ws: ExcelJS.Worksheet, ranges: { ds: number; le: number }[]
 }
 
 export async function POST(req: NextRequest) {
-  let b: { diasAlvo?: number; periodo?: Periodo; stores?: { key: string; rows: AnalysisRow[] }[] }
+  let b: { diasAlvo?: number; periodo?: Periodo; stores?: { key: string; rows: CompactRow[] }[] }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'JSON inválido' }, { status: 400 }) }
   const diasAlvo = Math.max(1, Math.round(Number(b.diasAlvo) || 10))
   const periodo: Periodo = b.periodo ?? { p3: 'jan-fev-mar', u3: 'abr-mai-jun', recente: 'junho', recenteAbbr: 'jun', janela: '' }
-  const provided = new Map<string, AnalysisRow[]>()
-  ;(b.stores ?? []).forEach(s => { if (s && s.key) provided.set(s.key, Array.isArray(s.rows) ? s.rows : []) })
+  const provided = new Map<string, Row[]>()
+  ;(b.stores ?? []).forEach(s => { if (s && s.key) provided.set(s.key, (Array.isArray(s.rows) ? s.rows : []).map(unpack)) })
   if (provided.size === 0) return NextResponse.json({ error: 'Nenhuma loja enviada' }, { status: 400 })
 
   const wb = new ExcelJS.Workbook()
