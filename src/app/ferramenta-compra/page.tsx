@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Shell from '@/components/Shell'
 import { parseVendas, analyze, packRows, LOJAS, type SkuRow, type Periodo, type Situacao, type LojaKey } from '@/lib/compra-rede'
 
@@ -26,16 +26,12 @@ export default function FerramentaCompra() {
   const [toast, setToast] = useState('')
   const [filtro, setFiltro] = useState<'todos' | Situacao>('todos')
   const [busca, setBusca] = useState('')
-  const pendingKey = useRef<LojaKey | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(''), 5000) }
 
-  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(''), 4000) }
+  // um input de arquivo por loja — sem estado compartilhado entre cartões
+  const pickFile = (key: LojaKey) => { document.getElementById(`file-${key}`)?.click() }
 
-  const pickFile = (key: LojaKey) => { pendingKey.current = key; inputRef.current?.click() }
-
-  const onFile = async (file: File) => {
-    const key = pendingKey.current
-    if (!key) return
+  const onFile = async (key: LojaKey, file: File) => {
     setBusyKey(key)
     try {
       const res = parseVendas(await file.arrayBuffer())
@@ -101,8 +97,10 @@ export default function FerramentaCompra() {
 
   return (
     <Shell>
-      <input ref={inputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
-        onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = '' }} />
+      {LOJAS.map(l => (
+        <input key={l.key} id={`file-${l.key}`} data-testid={`file-${l.key}`} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) onFile(l.key, f); e.target.value = '' }} />
+      ))}
 
       <div className="page-header flex-between">
         <div>
