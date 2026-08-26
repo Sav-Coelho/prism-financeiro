@@ -66,6 +66,31 @@ export interface ParseResult {
   warnings: string[]
   totalProdutos: number
   periodo: Periodo
+  filial: number | null // nº da filial detectado no cabeçalho do relatório (null se não achou)
+}
+
+// Detecta o nº da filial no cabeçalho. Formatos reais:
+//  - "Filial :" | "1 - SS Distribuidora Matriz"   (Matriz, Fernanda)
+//  - "2 - 2-SS Atacado e Varejo - Filial Cicero"  (valor direto na célula)
+function extractFilial(rows: unknown[][]): number | null {
+  for (let r = 0; r < Math.min(10, rows.length); r++) {
+    const row = rows[r] || []
+    for (let c = 0; c < Math.min(10, row.length); c++) {
+      const cell = row[c]
+      if (typeof cell !== 'string') continue
+      if (/^filial\s*:?\s*$/i.test(cell.trim())) {
+        for (let k = c + 1; k < row.length; k++) {
+          const v = row[k]
+          if (v == null || String(v).trim() === '') continue
+          const m = String(v).trim().match(/^(\d{1,3})\s*-/)
+          return m ? parseInt(m[1], 10) : null
+        }
+      }
+      const m2 = cell.trim().match(/^(\d{1,3})\s*-\s*.*(atacado|varejo|distribuidora|filial)/i)
+      if (m2) return parseInt(m2[1], 10)
+    }
+  }
+  return null
 }
 
 const toNum = (x: unknown): number => {
@@ -151,7 +176,7 @@ export function parseVendas(data: ArrayBuffer): ParseResult {
   const dup = recs.length - filtered.length
   if (dup > 0) warnings.push(`${dup} linha(s) de cabeçalho de quebra de página ignorada(s).`)
 
-  return { rows: out, warnings, totalProdutos: out.length, periodo: extractPeriodo(rows) }
+  return { rows: out, warnings, totalProdutos: out.length, periodo: extractPeriodo(rows), filial: extractFilial(rows) }
 }
 
 // ─────────────────────────── Análise ───────────────────────────
@@ -284,11 +309,11 @@ export function packRows(rows: AnalysisRow[]): CompactRow[] {
 
 // Lojas do arquivo-alvo — a ordem/nome define a coluna na aba "Dias de Estoque"
 export const LOJAS = [
-  { key: 'matriz', tab: 'Matriz', diasCol: 'B', titulo: 'MATRIZ / DISTRIBUIDORA (Pombal) — filial 1', aviso: true },
-  { key: 'cicero', tab: 'Cicero', diasCol: 'C', titulo: 'CICERO DANTAS — filial 2', aviso: false },
-  { key: 'cipo', tab: 'Cipo', diasCol: 'D', titulo: 'CIPÓ — filial 3', aviso: false },
-  { key: 'soure', tab: 'Soure', diasCol: 'E', titulo: 'SOURE — filial 4', aviso: false },
-  { key: 'fernanda', tab: 'Fernanda', diasCol: 'F', titulo: 'FERNANDA — filial 10', aviso: true },
+  { key: 'matriz', tab: 'Matriz', diasCol: 'B', filial: 1, titulo: 'MATRIZ / DISTRIBUIDORA (Pombal) — filial 1', aviso: true },
+  { key: 'cicero', tab: 'Cicero', diasCol: 'C', filial: 2, titulo: 'CICERO DANTAS — filial 2', aviso: false },
+  { key: 'cipo', tab: 'Cipo', diasCol: 'D', filial: 3, titulo: 'CIPÓ — filial 3', aviso: false },
+  { key: 'soure', tab: 'Soure', diasCol: 'E', filial: 4, titulo: 'SOURE — filial 4', aviso: false },
+  { key: 'fernanda', tab: 'Fernanda', diasCol: 'F', filial: 10, titulo: 'FERNANDA — filial 10', aviso: true },
 ] as const
 
 export type LojaKey = typeof LOJAS[number]['key']

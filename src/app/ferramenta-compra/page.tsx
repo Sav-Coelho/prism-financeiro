@@ -40,6 +40,15 @@ export default function FerramentaCompra() {
     try {
       const res = parseVendas(await file.arrayBuffer())
       if (res.rows.length === 0) { showToast('Nenhum produto reconhecido no arquivo.'); setBusyKey(null); return }
+      // Trava anti-troca: o relatório declara a filial no cabeçalho — recusa se não for a loja deste cartão
+      const alvo = LOJAS.find(l => l.key === key)!
+      if (res.filial != null && res.filial !== alvo.filial) {
+        const certa = LOJAS.find(l => l.filial === res.filial)
+        showToast(certa
+          ? `⚠ Este arquivo é da filial ${res.filial} (${certa.tab}). Suba-o no cartão "${certa.tab}".`
+          : `⚠ Este arquivo é da filial ${res.filial}, que não corresponde a "${alvo.tab}".`)
+        setBusyKey(null); return
+      }
       setLoaded(prev => ({ ...prev, [key]: { skus: res.rows, periodo: res.periodo, total: res.totalProdutos } }))
       setViewKey(key)
       showToast(`✓ ${LOJAS.find(l => l.key === key)?.tab}: ${res.totalProdutos} produtos (${res.periodo.janela || 'período do relatório'})`)
