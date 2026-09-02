@@ -31,18 +31,37 @@ export async function GET() {
 
   // 2. fitids DIFERENTES com mesma conta+data+valor+descrição — reimport com id regenerado
   //    (pode haver falso positivo: vendas idênticas no mesmo dia)
+  //    Sinal decisivo: grupo legítimo entra todo no MESMO import (createdAt igual);
+  //    duplicata por reimport entra em imports DIFERENTES.
   const fitidsDiferentes = await prisma.$queryRaw`
     SELECT t."bankAccountId" AS conta_id, b.name AS banco, t.date::date::text AS data,
            t.amount, t.description, COUNT(*)::int AS n,
            COUNT(DISTINCT t.fitid)::int AS fitids_distintos,
+           COUNT(DISTINCT date_trunc('minute', t."createdAt"))::int AS imports_distintos,
+           array_agg(DISTINCT to_char(date_trunc('minute', t."createdAt"), 'YYYY-MM-DD HH24:MI')) AS importado_em,
            array_agg(t.id ORDER BY t.id) AS ids,
            array_agg(t.fitid ORDER BY t.id) AS fitids
     FROM "Transaction" t LEFT JOIN "BankAccount" b ON b.id = t."bankAccountId"
     WHERE t.fitid IS NOT NULL AND RIGHT(t.fitid, 8) <> '_entrada'
     GROUP BY 1, 2, 3, 4, 5
     HAVING COUNT(DISTINCT t.fitid) > 1
-    ORDER BY n DESC, data DESC
+    ORDER BY imports_distintos DESC, n DESC, data DESC
     LIMIT 300`
+
+  // Totais do bucket acima SEM o LIMIT, separando por nº de imports envolvidos
+  const totaisSuspeitos = await prisma.$queryRaw`
+    SELECT COUNT(*)::int AS grupos_totais,
+           COALESCE(SUM(n), 0)::int AS lancamentos_envolvidos,
+           COUNT(*) FILTER (WHERE imports > 1)::int AS grupos_em_imports_distintos,
+           COALESCE(SUM(n) FILTER (WHERE imports > 1), 0)::int AS lancamentos_em_imports_distintos
+    FROM (
+      SELECT COUNT(*)::int AS n,
+             COUNT(DISTINCT date_trunc('minute', t."createdAt"))::int AS imports
+      FROM "Transaction" t
+      WHERE t.fitid IS NOT NULL AND RIGHT(t.fitid, 8) <> '_entrada'
+      GROUP BY t."bankAccountId", t.date::date, t.amount, t.description
+      HAVING COUNT(DISTINCT t.fitid) > 1
+    ) x`
 
   // 3. MESMO fitid na mesma conta com datas distintas E mesmo valor+descrição
   //    (fitid reutilizado pelo banco é normal quando o lançamento é outro;
@@ -94,6 +113,7 @@ export async function GET() {
     geradoEm: new Date().toISOString(),
     estatisticas,
     duplicatas_sem_fitid: semFitid,
+    totais_suspeitos: totaisSuspeitos,
     suspeitos_fitids_diferentes: fitidsDiferentes,
     mesmo_fitid_datas_distintas: mesmoFitidDatas,
     contas_bancarias_duplicadas: contasDuplicadas,
