@@ -5,13 +5,20 @@
  * alocados na conta errada e contas com grupo DRE incorreto.
  */
 import { prisma } from '@/lib/prisma'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    // ?full=1 → devolve também TODAS as transações classificadas (para análise offline)
+    const full = req.nextUrl.searchParams.get('full') === '1'
+    const transacoes = full ? await prisma.$queryRaw`
+      SELECT t.id::int AS id, t."accountId"::int AS account_id, t.amount,
+             t.date::date::text AS data, t.description
+      FROM "Transaction" t WHERE t."accountId" IS NOT NULL
+      ORDER BY t.id` : undefined
     const contas = await prisma.$queryRaw`
       SELECT a.id::int AS id, a.code, a.name, a.type, a."dreGroup" AS dre_group,
              COUNT(t.id)::int AS lancamentos,
@@ -36,7 +43,7 @@ export async function GET() {
     const semConta = await prisma.$queryRaw`
       SELECT COUNT(*)::int AS n FROM "Transaction" WHERE "accountId" IS NULL`
 
-    return NextResponse.json({ contas, descricoes, semConta })
+    return NextResponse.json({ contas, descricoes, semConta, transacoes })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 })
   }
