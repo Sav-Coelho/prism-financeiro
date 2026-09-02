@@ -16,6 +16,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
+  try {
   // 1. fitid NULL: mesma conta, data, valor e descrição repetidos — duplicata quase certa
   const semFitid = await prisma.$queryRaw`
     SELECT t."bankAccountId" AS conta_id, b.name AS banco, t.date::date::text AS data,
@@ -25,7 +26,7 @@ export async function GET() {
     WHERE t.fitid IS NULL
     GROUP BY 1, 2, 3, 4, 5
     HAVING COUNT(*) > 1
-    ORDER BY COUNT(*) DESC, t.date::date DESC
+    ORDER BY n DESC, data DESC
     LIMIT 300`
 
   // 2. fitids DIFERENTES com mesma conta+data+valor+descrição — reimport com id regenerado
@@ -40,7 +41,7 @@ export async function GET() {
     WHERE t.fitid IS NOT NULL AND RIGHT(t.fitid, 8) <> '_entrada'
     GROUP BY 1, 2, 3, 4, 5
     HAVING COUNT(DISTINCT t.fitid) > 1
-    ORDER BY COUNT(*) DESC, t.date::date DESC
+    ORDER BY n DESC, data DESC
     LIMIT 300`
 
   // 3. MESMO fitid na mesma conta com datas distintas E mesmo valor+descrição
@@ -56,7 +57,7 @@ export async function GET() {
     WHERE t.fitid IS NOT NULL AND RIGHT(t.fitid, 8) <> '_entrada'
     GROUP BY 1, 2, 3, 4, 5
     HAVING COUNT(*) > 1
-    ORDER BY (MAX(t.date::date) - MIN(t.date::date)) ASC, COUNT(*) DESC
+    ORDER BY intervalo_dias ASC, n DESC
     LIMIT 300`
 
   // 4. Contas bancárias em duplicidade (mesmo par OFX)
@@ -98,4 +99,7 @@ export async function GET() {
     contas_bancarias_duplicadas: contasDuplicadas,
     contrapartes_transferencia_orfas: entradasOrfas,
   })
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 })
+  }
 }
