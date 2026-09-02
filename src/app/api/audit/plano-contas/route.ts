@@ -22,7 +22,7 @@ export async function GET() {
       ORDER BY a.code`
 
     const descricoes = await prisma.$queryRaw`
-      SELECT * FROM (
+      SELECT account_id, description, n, soma FROM (
         SELECT t."accountId"::int AS account_id, t.description,
                COUNT(*)::int AS n,
                ROUND(SUM(t.amount)::numeric, 2)::float AS soma,
