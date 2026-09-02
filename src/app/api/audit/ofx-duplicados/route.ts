@@ -10,7 +10,7 @@
  * Nada é alterado — apenas SELECT.
  */
 import { prisma } from '@/lib/prisma'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -119,6 +119,102 @@ export async function GET() {
     contas_bancarias_duplicadas: contasDuplicadas,
     contrapartes_transferencia_orfas: entradasOrfas,
   })
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 })
+  }
+}
+
+/**
+ * LIMPEZA das duplicatas de reimport. Exige { confirm: "LIMPAR-DUPLICATAS" }.
+ * Com { dryRun: true } apenas lista o que seria apagado (usado como backup).
+ *
+ * Regra por grupo (conta+data+valor+descrição, fitids distintos, imports distintos):
+ *  - keep = MAIOR nº de instâncias vindas de um mesmo import (tamanho real do lote:
+ *    tarifa única reimportada 4× → keep 1; lote de 26 depósitos importado 2× → keep 26)
+ *  - mantém preferindo lançamentos CLASSIFICADOS (accountId), depois os mais antigos
+ *  - contrapartes de transferência (fitid+"_entrada") dos apagados saem junto
+ */
+interface DupRow {
+  id: number; conta_id: number; data: string; amount: number; description: string
+  fitid: string; account_id: number | null; imp: string; createdAt: Date
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    let body: { confirm?: string; dryRun?: boolean } = {}
+    try { body = await req.json() } catch { /* corpo vazio → validado abaixo */ }
+    if (body.confirm !== 'LIMPAR-DUPLICATAS') {
+      return NextResponse.json({ error: 'Confirmação ausente: envie { confirm: "LIMPAR-DUPLICATAS" }' }, { status: 400 })
+    }
+
+    const rows = await prisma.$queryRaw<DupRow[]>`
+      SELECT t.id::int AS id, t."bankAccountId"::int AS conta_id, t.date::date::text AS data,
+             t.amount, t.description, t.fitid, t."accountId"::int AS account_id,
+             to_char(date_trunc('minute', t."createdAt"), 'YYYY-MM-DD HH24:MI') AS imp,
+             t."createdAt"
+      FROM "Transaction" t
+      WHERE t.fitid IS NOT NULL AND RIGHT(t.fitid, 8) <> '_entrada' AND t."bankAccountId" IS NOT NULL
+        AND (t."bankAccountId", t.date::date, t.amount, t.description) IN (
+          SELECT "bankAccountId", date::date, amount, description
+          FROM "Transaction"
+          WHERE fitid IS NOT NULL AND RIGHT(fitid, 8) <> '_entrada' AND "bankAccountId" IS NOT NULL
+          GROUP BY 1, 2, 3, 4
+          HAVING COUNT(DISTINCT fitid) > 1
+             AND COUNT(DISTINCT date_trunc('minute', "createdAt")) > 1
+        )`
+
+    // Agrupa e decide o que apagar
+    const grupos = new Map<string, DupRow[]>()
+    rows.forEach(r => {
+      const k = `${r.conta_id}|${r.data}|${r.amount}|${r.description}`
+      if (!grupos.has(k)) grupos.set(k, [])
+      grupos.get(k)!.push(r)
+    })
+
+    const apagar: DupRow[] = []
+    let manter = 0
+    Array.from(grupos.values()).forEach(g => {
+      const porImport = new Map<string, number>()
+      g.forEach(r => porImport.set(r.imp, (porImport.get(r.imp) ?? 0) + 1))
+      const keep = Math.max(...Array.from(porImport.values()))
+      g.sort((a, b) =>
+        (b.account_id != null ? 1 : 0) - (a.account_id != null ? 1 : 0) ||
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() ||
+        a.id - b.id
+      )
+      manter += Math.min(keep, g.length)
+      apagar.push(...g.slice(keep))
+    })
+
+    const resumo = {
+      gruposDuplicados: grupos.size,
+      lancamentosEnvolvidos: rows.length,
+      manter,
+      apagar: apagar.length,
+      valorAbsolutoApagado: Math.round(apagar.reduce((s, r) => s + Math.abs(r.amount), 0) * 100) / 100,
+    }
+
+    if (body.dryRun) {
+      return NextResponse.json({ dryRun: true, ...resumo, registros: apagar })
+    }
+
+    // Execução: apaga em lotes + contrapartes _entrada dos apagados
+    const ids = apagar.map(r => r.id)
+    let apagados = 0
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500)
+      const del = await prisma.transaction.deleteMany({ where: { id: { in: chunk } } })
+      apagados += del.count
+    }
+    const fitidsEntrada = apagar.map(r => `${r.fitid}_entrada`)
+    let contrapartesApagadas = 0
+    for (let i = 0; i < fitidsEntrada.length; i += 500) {
+      const chunk = fitidsEntrada.slice(i, i + 500)
+      const del = await prisma.transaction.deleteMany({ where: { fitid: { in: chunk } } })
+      contrapartesApagadas += del.count
+    }
+
+    return NextResponse.json({ dryRun: false, ...resumo, apagados, contrapartesApagadas })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 })
   }

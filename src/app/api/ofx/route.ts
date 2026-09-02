@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { buildMatcher, dateKey } from '@/lib/ofx-dedup'
 import { NextRequest, NextResponse } from 'next/server'
 
 interface IncomingTx {
@@ -54,31 +55,40 @@ export async function POST(req: NextRequest) {
     }
   })
 
-  // Pre-check: find fitids already in the DB for this specific bank account,
-  // so we never silently drop records. Transactions with the same fitid but a
-  // different (or null) bankAccountId are legitimately new and must be inserted.
-  const fitidsToCheck = data.map(d => d.fitid).filter(Boolean) as string[]
-  // Chave composta fitid+date: Bradesco reutiliza FITIDs entre períodos distintos
-  const alreadyInDb = new Set<string>() // "fitid|YYYY-MM-DD"
-  if (fitidsToCheck.length > 0) {
-    const existing = await prisma.transaction.findMany({
-      where: {
-        fitid: { in: fitidsToCheck },
-        bankAccountId: bankAccId,
-      },
-      select: { fitid: true, date: true },
-    })
-    existing.forEach(e => {
-      if (e.fitid) alreadyInDb.add(`${e.fitid}|${e.date.toISOString().slice(0, 10)}`)
-    })
-  }
-
-  const toInsert = data.filter(d => {
-    if (!d.fitid) return true
-    const dateStr = d.date.toISOString().slice(0, 10)
-    return !alreadyInDb.has(`${d.fitid}|${dateStr}`)
+  // Dedup em duas camadas (ver lib/ofx-dedup.ts): fitid+data para bancos que
+  // mantêm o fitid, e conteúdo (data+valor+descrição) para bancos que REGENERAM
+  // o fitid a cada export (BNB/Itaú/BB) — sem isso, OFX de períodos sobrepostos
+  // reimportava tudo. Busca por RANGE de datas para enxergar também fitids novos.
+  const minDate = data.reduce((m, d) => (d.date < m ? d.date : m), data[0].date)
+  const maxDate = data.reduce((m, d) => (d.date > m ? d.date : m), data[0].date)
+  const existing = await prisma.transaction.findMany({
+    where: { bankAccountId: bankAccId, date: { gte: minDate, lte: maxDate } },
+    select: { fitid: true, date: true, amount: true, description: true },
   })
-  const alreadyImportedCount = data.length - toInsert.length
+  const matcher = buildMatcher(existing)
+
+  const toInsert: typeof data = []
+  let alreadyImportedCount = 0
+  const insertedFitid = new Map<string, number>() // fitid base|data → inserções neste lote
+  for (const d of data) {
+    const dateStr = dateKey(d.date)
+    if (matcher.match(d.fitid || null, dateStr, d.amount, d.description || '')) {
+      alreadyImportedCount++
+      continue
+    }
+    if (d.fitid) {
+      // Sufixo determinístico #n quando o mesmo fitid+data já existe (Caixa usa o
+      // MESMO fitid para todo depósito ATM) — sem isso o unique dropava o 2º
+      // depósito legítimo do dia silenciosamente.
+      const bk = `${d.fitid}|${dateStr}`
+      const jaNoBanco = matcher.baseCount(d.fitid, dateStr)
+      const jaNoLote = insertedFitid.get(bk) ?? 0
+      insertedFitid.set(bk, jaNoLote + 1)
+      const ordem = jaNoBanco + jaNoLote
+      if (ordem > 0) d.fitid = `${d.fitid}#${ordem + 1}`
+    }
+    toInsert.push(d)
+  }
 
   const result = await prisma.transaction.createMany({ data: toInsert, skipDuplicates: true })
   const imported = result.count

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { buildMatcher, dateKey } from '@/lib/ofx-dedup'
 import { parseOFX } from '@/lib/ofx-parser'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -39,32 +40,28 @@ export async function POST(req: NextRequest) {
 
   // Scope duplicate check strictly to the matched bank account.
   // If no account was identified yet, all transactions are new (can't be duplicates for an unknown account).
-  const fitids = parsed.map(tx => tx.fitid).filter(Boolean) as string[]
-  // Chave composta: fitid + date (YYYY-MM-DD) — Bradesco reutiliza FITIDs entre períodos
-  const existingMap = new Map<string, string>() // "fitid|YYYY-MM-DD" → importedAt ISO
-  if (matchedBankAccount && fitids.length > 0) {
+  // Dedup em duas camadas (mesma lógica da gravação — ver lib/ofx-dedup.ts):
+  // fitid+data E conteúdo, para reconhecer reimports mesmo com fitid regenerado.
+  let matcher: ReturnType<typeof buildMatcher> | null = null
+  if (matchedBankAccount && parsed.length > 0) {
+    const minDate = parsed.reduce((m, t) => (t.date < m ? t.date : m), parsed[0].date)
+    const maxDate = parsed.reduce((m, t) => (t.date > m ? t.date : m), parsed[0].date)
     const existing = await prisma.transaction.findMany({
-      where: { fitid: { in: fitids }, bankAccountId: matchedBankAccount.id },
-      select: { fitid: true, date: true, createdAt: true }
+      where: { bankAccountId: matchedBankAccount.id, date: { gte: minDate, lte: maxDate } },
+      select: { fitid: true, date: true, amount: true, description: true, createdAt: true },
     })
-    existing.forEach(e => {
-      if (e.fitid) {
-        const key = `${e.fitid}|${e.date.toISOString().slice(0, 10)}`
-        existingMap.set(key, e.createdAt.toISOString())
-      }
-    })
+    matcher = buildMatcher(existing)
   }
 
   const transactions = parsed.map(tx => {
-    const dateStr = tx.date.toISOString().slice(0, 10)
-    const key = `${tx.fitid}|${dateStr}`
+    const rec = matcher ? matcher.match(tx.fitid || null, dateKey(tx.date), tx.amount, tx.memo || '') : null
     return {
       fitid: tx.fitid,
       date: tx.date.toISOString(),
       amount: tx.amount,
       memo: tx.memo,
-      alreadyImported: existingMap.has(key),
-      importedAt: existingMap.get(key) ?? null,
+      alreadyImported: rec != null,
+      importedAt: rec?.createdAt?.toISOString() ?? null,
       isBalance: tx.isBalance,
     }
   })
